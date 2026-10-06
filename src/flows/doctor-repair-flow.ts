@@ -38,7 +38,7 @@ export async function runDoctorHealthRepairs(
   const inputs = opts.checks ?? copyHealthChecks(listHealthChecks());
   const checks: readonly DoctorHealthCheck[] = inputs.map(normalizeHealthCheck);
   const findings: HealthFinding[] = [];
-  const remainingFindings: HealthFinding[] = [];
+  const allRemainingFindings: HealthFinding[] = [];
   const changes: string[] = [];
   const warnings: string[] = [];
   const diffs: HealthRepairDiff[] = [];
@@ -46,7 +46,7 @@ export async function runDoctorHealthRepairs(
   const outcome = {
     config: ctx.cfg,
     findings,
-    remainingFindings,
+    remainingFindings: allRemainingFindings,
     changes,
     warnings,
     diffs,

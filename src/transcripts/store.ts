@@ -154,7 +154,7 @@ export class TranscriptsStore {
 
   private async assertExportDestinationOwned(
     session: TranscriptSessionDescriptor,
-    sessionDir = this.sessionDir(session),
+    sessionDir: string,
     operation: TranscriptStoreOperation,
     lease?: OpenClawStateLeaseContext,
   ): Promise<void> {
@@ -342,7 +342,7 @@ export class TranscriptsStore {
         }),
       }))
     ) {
-      await this.assertExportDestinationOwned(session, undefined, operation);
+      await this.assertExportDestinationOwned(session, this.sessionDir(session), operation);
       const legacySelector = legacyTranscriptSessionSelector(session);
       if (legacySelector !== undefined) {
         const legacySessionDir = path.join(this.exportRootDir, legacySelector);
