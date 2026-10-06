@@ -206,7 +206,6 @@ export class OpenClawAgentDatabaseReadOnlyScope {
     if (
       this.cached &&
       this.borrowers === 0 &&
-      this.database &&
       (!this.database.db.isOpen || this.database.db.isTransaction)
     ) {
       this.discardConnection();

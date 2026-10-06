@@ -1,4 +1,3 @@
-/** systemd start, stop, restart, and obsolete-unit removal. */
 import fs from "node:fs/promises";
 import { hasErrnoCode } from "../infra/errno.js";
 import { LEGACY_GATEWAY_SYSTEMD_SERVICE_NAMES } from "./constants.js";
@@ -213,10 +212,7 @@ type UninstallUserSystemdGatewayUnitResult = {
 };
 
 /**
- * Removes the canonical *user-scope* gateway unit, leaving any system-scope
- * unit untouched. Used by doctor to resolve a `dueling` installation by
- * dropping the redundant user-scope leftover (issue #79375). Removing a unit
- * under `$HOME` needs no root, unlike the system-scope unit.
+ * Doctor removes only the user-scope unit; system-scope ownership stays untouched.
  *
  * Pass the inspected user unit as `target` after confirmation. A later lookup
  * must not fall back to a leftover legacy unit if that confirmed file vanished.

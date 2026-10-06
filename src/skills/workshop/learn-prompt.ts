@@ -4,7 +4,6 @@ import { SKILL_AUTHORING_STANDARDS_PROMPT } from "./skill-authoring-standards.js
 export const DEFAULT_LEARN_REQUEST =
   "Distill the reusable workflow from the current conversation into a skill draft.";
 
-/** Builds one standards-guided Skill Workshop authoring instruction. */
 export function buildLearnPrompt(request: string): string {
   const normalizedRequest = request.trim() || DEFAULT_LEARN_REQUEST;
   return [

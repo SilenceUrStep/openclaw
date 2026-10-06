@@ -15,7 +15,6 @@ import {
   leaveMeetingWithBrowser,
   readMeetingTranscriptWithBrowser,
 } from "./browser-session-control.js";
-import { parseMeetingChromeNodeResult } from "./chrome-node-result.js";
 import type {
   CommandPairAudioBridge,
   ExternalAudioBridge,
@@ -318,11 +317,22 @@ function createMeetingChromeTransportWithAudioPolicy<
     }
   }
 
-  const parseNodeResult = (raw: unknown) =>
-    parseMeetingChromeNodeResult<Health>(
-      raw,
-      `${options.meetingLabel} node returned an invalid start result.`,
-    );
+  function parseNodeResult(raw: unknown) {
+    const value =
+      raw && typeof raw === "object" && "payload" in raw
+        ? (raw as { payload?: unknown }).payload
+        : raw;
+    if (!value || typeof value !== "object") {
+      throw new Error(`${options.meetingLabel} node returned an invalid start result.`);
+    }
+    return value as {
+      launched?: boolean;
+      bridgeId?: string;
+      audioBackend?: MeetingAudioBackend;
+      audioBridge?: { type?: string; outputGeneration?: boolean };
+      browser?: Health;
+    };
+  }
 
   async function resolveBrowserRequest(
     runtime: PluginRuntime,

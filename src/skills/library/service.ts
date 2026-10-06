@@ -24,7 +24,6 @@ import {
 } from "./bundle.js";
 import { captureSkillLibraryAccess } from "./store-access.js";
 import { assertSkillLibraryRevision, type SkillLibraryAuthority } from "./store.js";
-export { skillLibraryReceipt } from "./receipt.js";
 /** Prepared at human ingress without host database access. */
 export async function resolveSkillLibraryPresentation(
   authority: SkillLibraryAuthority,

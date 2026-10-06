@@ -1,4 +1,3 @@
-// OpenClaw agent turns run the real embedded agent loop with the ring-zero tool.
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -111,18 +110,14 @@ export async function cleanupSystemAgentSession(session: SystemAgentSession): Pr
 
 type SystemAgentTurnParams = Parameters<SystemAgentTurnRunner>[0];
 
-function clearFailedSystemAgentSessionState(session: SystemAgentSession): void {
-  session.proposalRef.current = undefined;
-  session.proposalRef.operation = undefined;
-  delete session.cliSession;
-}
-
 function throwSystemAgentInferenceUnavailable(params: {
   session: SystemAgentSession;
   failures?: unknown[];
   guidance?: ConstructorParameters<typeof SystemAgentInferenceUnavailableError>[2];
 }): never {
-  clearFailedSystemAgentSessionState(params.session);
+  params.session.proposalRef.current = undefined;
+  params.session.proposalRef.operation = undefined;
+  delete params.session.cliSession;
   throw new SystemAgentInferenceUnavailableError("agent-turn", params.failures, params.guidance);
 }
 

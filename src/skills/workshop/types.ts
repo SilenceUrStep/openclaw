@@ -8,7 +8,6 @@ import type {
 } from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 
-/** Schema id for persisted skill workshop proposal records. */
 export const SKILL_WORKSHOP_SCHEMA = "openclaw.skill-workshop.proposal.v1" as const;
 export const SKILL_WORKSHOP_MANIFEST_SCHEMA =
   "openclaw.skill-workshop.proposals-manifest.v1" as const;
@@ -19,8 +18,6 @@ type ProtocolSkillProposalRecord = SkillsProposalRecordResult;
 type ProtocolSkillProposalManifestEntry = SkillsProposalsListResult["proposals"][number];
 
 export type SkillProposalStatus = ProtocolSkillProposalRecord["status"];
-type SkillProposalSource = ProtocolSkillProposalRecord["createdBy"];
-type SkillProposalEvaluationTrigger = ProtocolSkillProposalEvaluation["trigger"];
 export type SkillProposalEventType = SkillProposalLifecycleEvent["type"];
 export type SkillProposalEvaluation = ProtocolSkillProposalEvaluation;
 export type SkillProposalEventActor = SkillProposalLifecycleEvent["actor"];
@@ -130,7 +127,7 @@ export type SkillProposalCreateInput = SkillProposalContext & {
   description: string;
   content: string;
   supportFiles?: SkillProposalSupportFileInput[];
-  createdBy?: SkillProposalSource;
+  createdBy?: ProtocolSkillProposalRecord["createdBy"];
   autonomousCapture?: boolean;
   origin?: SkillProposalOrigin;
   goal?: string;
@@ -174,7 +171,7 @@ type SkillProposalRevisionInput = SkillProposalContext & {
 export type SkillProposalActionInput = SkillProposalRevisionInput & { reason?: string };
 
 export type SkillProposalEvaluateInput = SkillProposalRevisionInput & {
-  trigger?: SkillProposalEvaluationTrigger;
+  trigger?: ProtocolSkillProposalEvaluation["trigger"];
 };
 
 export type SkillProposalEventsListInput = {

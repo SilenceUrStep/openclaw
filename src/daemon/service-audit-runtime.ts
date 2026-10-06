@@ -1,4 +1,3 @@
-/** Checks the executable recorded in a Gateway service against the runtime contract. */
 import { SUPPORTED_NODE_VERSIONS } from "../../node-version.mjs";
 import { isBunRuntime, isNodeRuntime } from "./runtime-binary.js";
 import {

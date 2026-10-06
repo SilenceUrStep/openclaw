@@ -2,7 +2,6 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import type { SkillTelemetrySource } from "../types.js";
 import type { Skill } from "./skill-contract.js";
 
-/** Returns the stable source label attached to a loaded skill. */
 export function resolveSkillSource(skill: Skill): string {
   return (
     normalizeOptionalString(skill.source) ??

@@ -13,7 +13,6 @@ import type { SkillInstallSpec, SkillsInstallPreferences } from "../types.js";
 import type { SkillInstallResult } from "./install-types.js";
 import type { ClawHubSkillFileState } from "./skill-tree-digest.js";
 
-/** Result shape for installing a skill archive into a workspace skills dir. */
 export type SkillArchiveInstallResult =
   | { ok: true; targetDir: string }
   | {

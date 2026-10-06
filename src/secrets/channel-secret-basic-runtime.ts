@@ -1,4 +1,3 @@
-/** Basic channel secret runtime helpers for account/root credential collection. */
 import { coerceSecretRef } from "../config/types.secrets.js";
 import { normalizeAccountId } from "../routing/account-id.js";
 import { appendConfigPathSegment } from "../shared/dot-path.js";
@@ -57,7 +56,6 @@ function buildChannelSecretTargetRegistryEntry(params: {
   };
 }
 
-// Builds standard channel/account secret registry rows without repeating fixed metadata.
 export function createChannelSecretTargetRegistryEntries(params: {
   channelKey: string;
   account?: readonly (string | ChannelSecretTargetPathSpec)[];
@@ -120,7 +118,6 @@ export function createChannelSecretContract(
   };
 }
 
-/** Builds the common registry and runtime collector used by simple channel secrets. */
 export function createSimpleChannelSecretContract(params: {
   channelKey: string;
   label: string;
@@ -228,7 +225,6 @@ export type ChannelAccountSurface = {
   accounts: ChannelAccountEntry[];
 };
 
-/** Predicate used by channel helpers to decide whether an account-owned secret is active. */
 export type ChannelAccountPredicate = (entry: ChannelAccountEntry) => boolean;
 
 /** Stable owner identity shared by SecretRef collection and channel activation. */
@@ -249,7 +245,6 @@ export function createChannelAccountSecretOwner(
   };
 }
 
-/** Reads a channel config block when it exists as an object. */
 export function getChannelRecord(
   config: { channels?: Record<string, unknown> },
   channelKey: string,
@@ -262,7 +257,6 @@ export function getChannelRecord(
   return isRecord(channel) ? channel : undefined;
 }
 
-/** Reads a channel config and its resolved account surface in one step. */
 export function getChannelSurface(
   config: { channels?: Record<string, unknown> },
   channelKey: string,
@@ -324,12 +318,10 @@ export function isBaseFieldActiveForChannelSurface(
   );
 }
 
-/** Normalizes optional channel secret strings before deciding whether a value is configured. */
 export function normalizeSecretStringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** Returns true when a channel value contains plaintext or a SecretRef-compatible value. */
 export function hasConfiguredSecretInputValue(
   value: unknown,
   defaults: SecretDefaults | undefined,
@@ -397,7 +389,6 @@ function collectTopLevelChannelFieldAssignments(params: {
   }
 }
 
-/** Collects root/account channel field SecretRef assignments for one credential path. */
 export function collectSimpleChannelFieldAssignments(params: {
   channelKey: string;
   field: string;
@@ -417,7 +408,6 @@ export function collectSimpleChannelFieldAssignments(params: {
   });
 }
 
-/** Collects a channel field whose active state depends on caller-provided account predicates. */
 export function collectConditionalChannelFieldAssignments(params: {
   channelKey: string;
   field: string;
@@ -478,7 +468,6 @@ export function collectConditionalChannelFieldAssignments(params: {
   }
 }
 
-/** Collects a nested channel field from root and account-specific nested config blocks. */
 export function collectNestedChannelFieldAssignments(params: {
   channelKey: string;
   nestedKey: string;

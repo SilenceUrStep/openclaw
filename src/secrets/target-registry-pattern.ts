@@ -1,22 +1,18 @@
-/** Compiles, matches, and expands secret target registry path patterns. */
 import type { ConcreteConfigPathSegment } from "../shared/dot-path.js";
 import { parseConfigPathArrayIndex } from "../shared/path-array-index.js";
 import { isRecord, parseDotPath } from "./shared.js";
 import type { SecretTargetRegistryEntry } from "./target-registry-types.js";
 
-/** Tokenized segment in a secret target path pattern. */
 type PathPatternToken =
   | { kind: "literal"; value: string }
   | { kind: "wildcard" }
   | { kind: "array"; field: string };
 
-/** Registry entry with compiled path/ref pattern tokens. */
 export type CompiledTargetRegistryEntry = SecretTargetRegistryEntry & {
   pathTokens: PathPatternToken[];
   refPathTokens?: PathPatternToken[];
 };
 
-/** Concrete config value matched by expanding a path pattern. */
 type ExpandedPathMatch = {
   segments: ConcreteConfigPathSegment[];
   captures: ConcreteConfigPathSegment[];
@@ -27,9 +23,6 @@ function countDynamicPatternTokens(tokens: PathPatternToken[]): number {
   return tokens.filter((token) => token.kind === "wildcard" || token.kind === "array").length;
 }
 
-/**
- * Parses a dotted target pattern into literal, wildcard, and array traversal tokens.
- */
 function parsePathPattern(pathPattern: string, pathSegments?: string[]): PathPatternToken[] {
   const segments = pathSegments ?? parseDotPath(pathPattern);
   return segments.map((segment) => {
@@ -47,9 +40,6 @@ function parsePathPattern(pathPattern: string, pathSegments?: string[]): PathPat
   });
 }
 
-/**
- * Compiles a registry entry and verifies its value path/ref path wildcard shape matches.
- */
 export function compileTargetRegistryEntry(
   entry: SecretTargetRegistryEntry,
 ): CompiledTargetRegistryEntry {
@@ -72,9 +62,6 @@ export function compileTargetRegistryEntry(
   };
 }
 
-/**
- * Matches concrete path segments against compiled pattern tokens and returns dynamic captures.
- */
 export function matchPathTokens(
   segments: readonly ConcreteConfigPathSegment[],
   tokens: PathPatternToken[],
@@ -157,9 +144,6 @@ export function materializePathTokens(
   return captureIndex === captures.length ? out : null;
 }
 
-/**
- * Expands a pattern across a config object and returns every matching value with captures.
- */
 export function expandPathTokens(root: unknown, tokens: PathPatternToken[]): ExpandedPathMatch[] {
   const out: ExpandedPathMatch[] = [];
   const walk = (

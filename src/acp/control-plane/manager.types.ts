@@ -1,4 +1,3 @@
-/** Shared types and dependency wiring for the ACP session manager control plane. */
 import type {
   AcpElicitationHandler,
   AcpRuntime,
@@ -35,7 +34,6 @@ import {
 
 export type AcpSessionTarget = { agentId: string; sessionKey: string };
 
-/** Result of resolving persisted ACP metadata for a session key. */
 export type AcpSessionResolution =
   | {
       kind: "none";
@@ -56,7 +54,6 @@ export type AcpSessionResolution =
       entry?: SessionEntry;
     };
 
-/** Input required to create or resume an ACP runtime session. */
 export type AcpInitializeSessionInput = {
   /** Ephemeral source authority; rechecked after queued work and before publication. */
   assertActive?: () => void;
@@ -75,7 +72,6 @@ export type AcpInitializeSessionInput = {
 
 export type AcpTurnAttachment = AcpRuntimeTurnAttachment;
 
-/** Input for one ACP prompt turn routed through the manager. */
 export type AcpRunTurnInput = {
   /** Private admitted execution context supplied by the owning host ingress. */
   admittedRunContext: import("../../agents/admitted-run-context.js").AdmittedRunContext;
@@ -100,7 +96,6 @@ type AcpTurnLifecycleEvent = {
   at: number;
 };
 
-/** Input for closing, resetting, or cleaning up an ACP session. */
 export type AcpCloseSessionInput = {
   expectedControlBinding?: AcpSessionControlBinding;
   /** Source authority for new backend effects, independent of accepted-write settlement. */
@@ -121,7 +116,6 @@ export type AcpCloseSessionResult = {
   metaCleared: boolean;
 };
 
-/** User-facing session status assembled from persisted metadata and runtime status. */
 export type AcpSessionStatus = {
   sessionKey: string;
   agentId?: string;

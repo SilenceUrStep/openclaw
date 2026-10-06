@@ -1,4 +1,3 @@
-/** Shared secrets runtime resolver context, assignments, and warning helpers. */
 import { resolveConfigSecretRef } from "../config/resolution-facts.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
@@ -68,7 +67,6 @@ class SecretAssignmentValidationError extends Error {
   }
 }
 
-/** Returns every assignment whose resolved value failed its target shape contract. */
 export function getSecretAssignmentValidationFailures(
   error: unknown,
 ): SecretAssignmentValidationFailure[] {
@@ -98,9 +96,6 @@ export type ResolverContext = {
 
 export type SecretDefaults = NonNullable<OpenClawConfig["secrets"]>["defaults"];
 
-/**
- * Creates the mutable collection context used while preparing a secrets runtime snapshot.
- */
 export function createResolverContext(params: {
   sourceConfig: OpenClawConfig;
   env: NodeJS.ProcessEnv;
@@ -117,9 +112,6 @@ export function createResolverContext(params: {
   };
 }
 
-/**
- * Records a SecretRef assignment that should be resolved and applied later.
- */
 export function pushAssignment(context: ResolverContext, assignment: SecretAssignment): void {
   context.assignments.push(assignment);
 }
@@ -136,9 +128,6 @@ export function pushWarning(context: ResolverContext, warning: SecretResolverWar
   context.warnings.push(warning);
 }
 
-/**
- * Emits the standard warning for refs configured on currently inactive surfaces.
- */
 export function pushInactiveSurfaceWarning(params: {
   context: ResolverContext;
   path: string;
@@ -221,9 +210,6 @@ export function collectSecretInputAssignment(
   });
 }
 
-/**
- * Applies resolved SecretRef values to their collected config targets with shape validation.
- */
 export function applyResolvedAssignments(params: {
   assignments: SecretAssignment[];
   resolved: Map<string, unknown>;
@@ -260,9 +246,6 @@ export function applyResolvedAssignments(params: {
   }
 }
 
-/**
- * Own-property helper used by config collectors that receive unknown object shapes.
- */
 export function hasOwnProperty(record: Record<string, unknown>, key: string): boolean {
   return Object.hasOwn(record, key);
 }
@@ -277,9 +260,6 @@ export function isEnabledFlag(value: unknown): boolean {
   return value.enabled !== false;
 }
 
-/**
- * Returns whether both a channel and one account are enabled for secret resolution.
- */
 export function isChannelAccountEffectivelyEnabled(
   channel: Record<string, unknown>,
   account: Record<string, unknown>,

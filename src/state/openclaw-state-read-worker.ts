@@ -256,18 +256,6 @@ export function captureOpenClawStateReadSource() {
   };
 }
 
-function decodeTaskReply(reply: OpenClawStateReadReply): OpenClawStateReadOutcome {
-  if (reply.ok) {
-    return { value: reply };
-  }
-  const error = new Error(reply.message);
-  retainOpenClawStateWorkerErrorPayload(error, reply.error);
-  return {
-    error: hydrateOpenClawStateWorkerError(error, { includeOrdinary: true }),
-    sourceAdmitted: reply.sourceAdmitted === true,
-  };
-}
-
 function createReadTransport(
   command: OpenClawStateReadCommand,
   state: ReadRuntime,
@@ -361,7 +349,16 @@ function createReadTransport(
           retainOpenClawStateWorkerErrorPayload(error, reply.nativeCleanupFailure.error);
           cleanup.error = hydrateOpenClawStateWorkerError(error, { includeOrdinary: true });
         }
-        outcome = decodeTaskReply(reply);
+        if (reply.ok) {
+          outcome = { value: reply };
+        } else {
+          const error = new Error(reply.message);
+          retainOpenClawStateWorkerErrorPayload(error, reply.error);
+          outcome = {
+            error: hydrateOpenClawStateWorkerError(error, { includeOrdinary: true }),
+            sourceAdmitted: reply.sourceAdmitted === true,
+          };
+        }
       } catch (error) {
         outcome = { error };
       }

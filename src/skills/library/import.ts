@@ -21,7 +21,8 @@ import {
   SKILL_LIBRARY_MAX_PATH_COMPONENTS,
   SKILL_LIBRARY_MAX_TREE_ENTRIES,
 } from "./bundle.js";
-import { saveSkillLibrary, skillLibraryReceipt } from "./service.js";
+import { skillLibraryReceipt } from "./receipt.js";
+import { saveSkillLibrary } from "./service.js";
 import { captureSkillLibraryAccess } from "./store-access.js";
 import type { SkillLibraryAuthority } from "./store.js";
 
