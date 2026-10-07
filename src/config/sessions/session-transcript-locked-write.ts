@@ -121,24 +121,58 @@ export async function withWorkerTranscriptWriteLock<T>(
         releaseSessionSourceAuthorities([{ release: () => execution.release() }, owned]),
       prepareWorker: (writer, source) => ({
         async prepare() {
-          const { restoreSessionColdTranscript } = await import("./session-cold-storage.js");
-          await restoreSessionColdTranscript(fenced, assertCurrent, {
-            target: resolved,
-            readMetadata: async () => {
-              const metadata = await runOpenClawAgentWorkerWrite(database, () =>
-                writer.runExisting(source, (worker) =>
-                  executeSessionMessageRewriteOperation(worker, database.agentId, {
-                    type: "session.transcript.lock.cold",
-                    input: { scope: resolved },
-                  }),
-                ),
-              );
-              if (!metadata) {
-                throw new Error("Locked transcript lost its admitted database");
-              }
-              return metadata.archive;
-            },
-          });
+          const { restoreSessionColdTranscript, SessionColdSourceReboundError } =
+            await import("./session-cold-storage.js");
+          assertCurrent();
+          const assertRestorationCurrent = () => {
+            execution.assertCurrent();
+            (owned.assertPreparedCurrent ?? owned.assertCurrent)();
+          };
+          try {
+            await restoreSessionColdTranscript(
+              fenced,
+              assertRestorationCurrent,
+              {
+                target: resolved,
+                readMetadata: async () => {
+                  const metadata = await runOpenClawAgentWorkerWrite(database, () =>
+                    writer.runExisting(source, (worker) =>
+                      executeSessionMessageRewriteOperation(worker, database.agentId, {
+                        type: "session.transcript.lock.cold",
+                        input: { scope: resolved },
+                      }),
+                    ),
+                  );
+                  if (!metadata) {
+                    throw new Error("Locked transcript lost its admitted database");
+                  }
+                  return metadata.archive;
+                },
+              },
+              {
+                kind: "locked",
+                agentId: resolved.agentId,
+                sessionKey: resolved.sessionKey,
+                sources: owned.checks.map((check) => check.predicate),
+                fence: {
+                  expectedOwner: fenced.expectedOwner,
+                  expectedLifecycleRevision: fenced.expectedLifecycleRevision,
+                  expectedWriterRunId: fenced.expectedWriterRunId,
+                },
+              },
+            );
+          } catch (error) {
+            if (error instanceof SessionColdSourceReboundError) {
+              const { index, facts } = error.refusal;
+              const check = Number.isInteger(index) && index >= 0 ? owned.checks[index] : undefined;
+              check?.refuse(facts);
+              throw new Error("Cold transcript source refusal omitted its prepared assertion", {
+                cause: error,
+              });
+            }
+            throw error;
+          }
+          assertCurrent();
         },
         beforeWrite: assertCurrent,
         async release() {},

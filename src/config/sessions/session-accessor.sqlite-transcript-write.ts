@@ -8,7 +8,6 @@ import {
   type OpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
 import { supportsOpenClawAgentDatabaseExecution } from "../../state/openclaw-agent-execution.js";
-import { clearAllCliSessions } from "./cli-session-binding.js";
 import type {
   SessionTranscriptAccessScope,
   SessionTranscriptContextVersion,
@@ -22,10 +21,8 @@ import type {
   TranscriptMessageAppendOptions,
   TranscriptMessageAppendResult,
 } from "./session-accessor.sqlite-contract.js";
-import { assertLifecycleTargetSnapshotUnchanged } from "./session-accessor.sqlite-entry-equality.js";
 import {
   readSessionEntryRow,
-  readSessionEntrySelectionSnapshot,
   readSessionIdentitySnapshot,
   writeSessionEntry,
 } from "./session-accessor.sqlite-entry-store.js";
@@ -80,7 +77,6 @@ import type {
   SessionTranscriptRuntimeTarget,
   SessionTranscriptWriteLockAccessorContext,
 } from "./session-accessor.types.js";
-import { COMPACTION_RUN_USAGE_CLEAR_PATCH } from "./session-entry-projection.js";
 import { SqliteTranscriptMutationConflictError } from "./session-mutation-conflict-error.js";
 import { withTranscriptLockSettlement } from "./session-transcript-lock-settlement.js";
 import { projectCanonicalSessionEntryShape } from "./store-entry-shape.js";
@@ -283,86 +279,6 @@ export function replaceTranscriptEventsSync(
 }
 
 export { replaceTranscriptSuffixEventsSync } from "./session-accessor.sqlite-transcript-suffix-write.js";
-
-export async function trimTranscriptForManualCompact(
-  scope: SessionTranscriptAccessScope,
-  selectRetainedLines: (lines: readonly string[]) => readonly string[] | null,
-  options: { nowMs?: number } = {},
-): Promise<{ trimmed: false } | { kept: number; trimmed: true }> {
-  const resolved = resolveSqliteTranscriptScope(scope);
-  const { restoreSessionColdTranscript } = await import("./session-cold-storage.js");
-  await restoreSessionColdTranscript({ ...scope, sessionId: resolved.sessionId });
-  return await runExclusiveSqliteSessionWrite(
-    resolved,
-    async () => {
-      const database = openOpenClawAgentDatabase(toDatabaseOptions(resolved));
-      const snapshotRows = readTranscriptEventRows(database, resolved.sessionId);
-      const sessionSnapshot = readSessionEntrySelectionSnapshot(
-        database,
-        resolved.sessionKey,
-        true,
-      );
-      const lines = snapshotRows.map((row) => row.eventJson);
-      const retainedLines = selectRetainedLines(lines);
-      if (!retainedLines) {
-        return { trimmed: false };
-      }
-      if (sessionSnapshot[0]?.entry.sessionId !== resolved.sessionId) {
-        throw new Error(
-          `Cannot compact SQLite transcript ${resolved.sessionId} without its current session entry`,
-        );
-      }
-      const retainedEvents = retainedLines.map((line) => JSON.parse(line) as TranscriptEvent);
-      const publish = runOpenClawAgentWriteTransaction(
-        (writeDatabase) => {
-          assertSqliteTranscriptSnapshotUnchanged(writeDatabase, resolved.sessionId, snapshotRows);
-          const freshSessionSnapshot = readSessionEntrySelectionSnapshot(
-            writeDatabase,
-            resolved.sessionKey,
-            true,
-          );
-          assertLifecycleTargetSnapshotUnchanged(
-            sessionSnapshot,
-            freshSessionSnapshot,
-            "session.transcript.manual-compact",
-          );
-          const freshEntry = freshSessionSnapshot[0]?.entry;
-          if (!freshEntry || freshEntry.sessionId !== resolved.sessionId) {
-            throw new Error(`SQLite session changed before compacting ${resolved.sessionId}`);
-          }
-          const identityKeys = collectSessionEntryLookupKeys(resolved.sessionKey);
-          const previousIdentity = readSessionIdentitySnapshot(writeDatabase, identityKeys);
-          replaceSqliteTranscriptEventsInTransaction(writeDatabase, resolved, retainedEvents);
-          const nextEntry = structuredClone(freshEntry);
-          delete nextEntry.contextBudgetStatus;
-          Object.assign(nextEntry, COMPACTION_RUN_USAGE_CLEAR_PATCH);
-          delete nextEntry.totalTokens;
-          delete nextEntry.totalTokensFresh;
-          delete nextEntry.totalTokensVersion;
-          clearAllCliSessions(nextEntry);
-          nextEntry.updatedAt = options.nowMs ?? Date.now();
-          // The transcript rewrite, binding clear, and token invalidation describe one generation.
-          // Keep them in this transaction so either both become visible or neither does.
-          writeSessionEntry(writeDatabase, resolved.sessionKey, nextEntry, {
-            previousEntry: freshEntry,
-          });
-          const currentIdentity = readSessionIdentitySnapshot(writeDatabase, identityKeys);
-          return prepareSessionIdentityPublication(
-            writeDatabase,
-            resolved.agentId,
-            previousIdentity,
-            currentIdentity,
-          );
-        },
-        toDatabaseOptions(resolved),
-        { operationLabel: "session.transcript.manual-compact" },
-      );
-      publish();
-      return { kept: retainedLines.length, trimmed: true };
-    },
-    "session.transcript.compact",
-  );
-}
 
 /** Appends one raw transcript event to the additive SQLite transcript store. */
 export async function appendTranscriptEvent(

@@ -70,14 +70,12 @@ import {
   assertSessionTranscriptHot,
   readSessionColdTranscript,
 } from "./session-cold-storage-state.js";
-import {
-  readRefusedSessionSource,
-  transferSessionEntryWorkerCandidate,
-} from "./session-entry-patch.worker.js";
+import { transferSessionEntryWorkerCandidate } from "./session-entry-patch.worker.js";
 import { SqliteTranscriptMutationConflictError } from "./session-mutation-conflict-error.js";
 import type { SessionPendingInputAuthorityFacts } from "./session-pending-input-authority.js";
 import { readSessionPendingInputAuthorityFacts } from "./session-pending-input-authority.kernel.js";
 import type { SessionSourcePredicate } from "./session-source-authority.js";
+import { readRefusedSessionSource } from "./session-source-predicate.worker.js";
 import { SessionTranscriptWriterClaimReboundError } from "./session-transcript-writer-claim-error.js";
 import type { TranscriptEntryAnchor } from "./transcript-entry-anchor.js";
 import { readMessageIdempotencyKey } from "./transcript-message-identity.js";
