@@ -48,16 +48,13 @@ function normalizeToolCallsInMessage(
     }
     usedIds ??= new Set<string>();
     const rawId = typeof block.id === "string" ? block.id : undefined;
-    if (typeof block.name === "string") {
-      const normalized = resolveToolCallName(block.name, allowedToolNames, rawId);
-      if (normalized !== null && normalized !== block.name) {
-        block.name = normalized;
-      }
-    } else {
-      const inferred = resolveToolCallName("", allowedToolNames, rawId);
-      if (inferred) {
-        block.name = inferred;
-      }
+    const normalized = resolveToolCallName(
+      typeof block.name === "string" ? block.name : "",
+      allowedToolNames,
+      rawId,
+    );
+    if (normalized && normalized !== block.name) {
+      block.name = normalized;
     }
     const trimmedId = rawId?.trim();
     if (trimmedId) {
@@ -86,9 +83,7 @@ function normalizeToolCallsInMessage(
     const normalizedUnknownToolName = normalizeToolPolicyName(rawName);
     if (!unknownToolName) {
       unknownToolName = normalizedUnknownToolName;
-      continue;
-    }
-    if (unknownToolName !== normalizedUnknownToolName) {
+    } else if (unknownToolName !== normalizedUnknownToolName) {
       sawIncompleteToolCall = true;
     }
   }
@@ -208,12 +203,8 @@ function guardUnknownToolLoopInMessage(
     state.countedMessages.add(countableMessage);
   }
 
-  if (state.lastUnknownToolName === unknownToolName) {
-    state.count += 1;
-  } else {
-    state.lastUnknownToolName = unknownToolName;
-    state.count = 1;
-  }
+  state.count = state.lastUnknownToolName === unknownToolName ? state.count + 1 : 1;
+  state.lastUnknownToolName = unknownToolName;
 
   if (state.count > threshold) {
     rewriteUnknownToolLoopMessage(message, unknownToolName);

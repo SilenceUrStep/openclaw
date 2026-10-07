@@ -409,14 +409,11 @@ async function ensureGooglePromptCache(params: {
 
   const fetchImpl = buildGuardedModelFetch(params.model);
   const requestOptions = {
-    apiKey: params.apiKey,
+    ...params,
     baseUrl,
-    cacheRetention: params.cacheRetention,
     fetchImpl,
     headers: params.model.headers,
-    model: params.model,
     now,
-    signal: params.signal,
   };
   const refreshWindowMs =
     params.cacheRetention === "long"
@@ -436,19 +433,13 @@ async function ensureGooglePromptCache(params: {
     ...requestOptions,
     ...(reusableCachedContent
       ? { cachedContent: reusableCachedContent }
-      : {
-          modelId: params.model.id,
-          systemPrompt: params.systemPrompt,
-          tools: params.tools,
-          toolConfig: params.toolConfig,
-        }),
+      : { modelId: params.model.id }),
   });
   if (result) {
     await appendGooglePromptCacheEntry(params.sessionManager, {
       status: "ready",
       ...entryMetadata,
-      cachedContent: result.cachedContent,
-      expireTime: result.expireTime,
+      ...result,
     });
   } else if (!reusableCachedContent) {
     // Failed refreshes keep their still-valid resource; only creation failures back off.

@@ -312,25 +312,20 @@ function wrapRetryStreamWithRecoveryNotification(
     void completion.catch(() => {});
     return completion;
   };
-  retryStream.result = finish;
+  return settleRecoveryStream(retryStream, finish, readNotification);
+}
+
+function settleRecoveryStream(
+  stream: Awaited<ReturnType<StreamFn>>,
+  result: () => Promise<AssistantMessage>,
+  readNotification: () => Promise<void> | undefined,
+): Awaited<ReturnType<StreamFn>> {
+  stream.result = result;
   const settle = () =>
-    finish().then(
+    result().then(
       () => undefined,
       () => undefined,
     );
-  return wrapStreamObjectSettlement(
-    retryStream,
-    settle,
-    isTerminalAssistantEvent,
-    createRecoveryCloseSettlement(retryStream, settle, readNotification),
-  );
-}
-
-function createRecoveryCloseSettlement(
-  stream: object,
-  settle: () => Promise<void>,
-  readNotification: () => Promise<void> | undefined,
-): () => Promise<void> {
   let producerCompleted = false;
   void getEventStreamCompletion(stream)?.then(
     () => {
@@ -342,11 +337,12 @@ function createRecoveryCloseSettlement(
   );
   // A partial-only consumer can close without waiting for ordinary provider work.
   // Completed producers may still be scheduling their admitted repair notification.
-  return () => readNotification() ?? (producerCompleted ? settle() : Promise.resolve());
-}
-
-function isTerminalAssistantEvent(event: AssistantMessageEvent): boolean {
-  return event.type === "done" || event.type === "error";
+  return wrapStreamObjectSettlement(
+    stream,
+    settle,
+    (event) => event.type === "done" || event.type === "error",
+    () => readNotification() ?? (producerCompleted ? settle() : Promise.resolve()),
+  );
 }
 
 async function retryStreamWithoutThinking(
@@ -376,23 +372,30 @@ async function pumpStreamWithRecovery(
   notify: () => Promise<void>,
 ): Promise<AssistantMessage> {
   let yieldedOutput = false;
+  const recover = (error: unknown, stage: "stream error" | "error during stream") => {
+    if (!shouldRecoverAnthropicThinkingError(error, sessionMeta)) {
+      return undefined;
+    }
+    if (yieldedOutput) {
+      log.warn(
+        `[session-recovery] Anthropic thinking error occurred after streaming began; skipping retry to avoid duplicate chunks: sessionId=${sessionMeta.id}`,
+      );
+      return undefined;
+    }
+    sessionMeta.recoveredAnthropicThinking = true;
+    log.warn(
+      `[session-recovery] Anthropic thinking ${stage}; retrying once without thinking blocks: sessionId=${sessionMeta.id}`,
+    );
+    return retryStreamWithoutThinking(outer, retry, notify);
+  };
   try {
     return await runPluginStreamConsumer(stream, async () => {
       const resolved = await stream;
       for await (const chunk of resolved as AsyncIterable<unknown>) {
         if (isAssistantMessageErrorEvent(chunk)) {
-          if (shouldRecoverAnthropicThinkingError(chunk.error, sessionMeta)) {
-            if (yieldedOutput) {
-              log.warn(
-                `[session-recovery] Anthropic thinking error occurred after streaming began; skipping retry to avoid duplicate chunks: sessionId=${sessionMeta.id}`,
-              );
-            } else {
-              sessionMeta.recoveredAnthropicThinking = true;
-              log.warn(
-                `[session-recovery] Anthropic thinking stream error; retrying once without thinking blocks: sessionId=${sessionMeta.id}`,
-              );
-              return retryStreamWithoutThinking(outer, retry, notify);
-            }
+          const recovered = recover(chunk.error, "stream error");
+          if (recovered) {
+            return recovered;
           }
         } else {
           yieldedOutput = true;
@@ -403,20 +406,11 @@ async function pumpStreamWithRecovery(
       return result as AssistantMessage;
     });
   } catch (error: unknown) {
-    if (!shouldRecoverAnthropicThinkingError(error, sessionMeta)) {
-      throw error;
+    const recovered = recover(error, "error during stream");
+    if (recovered) {
+      return recovered;
     }
-    if (yieldedOutput) {
-      log.warn(
-        `[session-recovery] Anthropic thinking error occurred after streaming began; skipping retry to avoid duplicate chunks: sessionId=${sessionMeta.id}`,
-      );
-      throw error;
-    }
-    sessionMeta.recoveredAnthropicThinking = true;
-    log.warn(
-      `[session-recovery] Anthropic thinking error during stream; retrying once without thinking blocks: sessionId=${sessionMeta.id}`,
-    );
-    return retryStreamWithoutThinking(outer, retry, notify);
+    throw error;
   }
 }
 
@@ -433,18 +427,7 @@ function createRecoveryStream(
     pumpStreamWithRecovery(outer, stream, sessionMeta, retry, notify).finally(() => outer.end()),
   );
   void finalResultPromise.catch(() => {});
-  outer.result = () => finalResultPromise;
-  const settle = () =>
-    finalResultPromise.then(
-      () => undefined,
-      () => undefined,
-    );
-  return wrapStreamObjectSettlement(
-    outer,
-    settle,
-    isTerminalAssistantEvent,
-    createRecoveryCloseSettlement(outer, settle, readNotification),
-  );
+  return settleRecoveryStream(outer, () => finalResultPromise, readNotification);
 }
 
 export function wrapAnthropicStreamWithRecovery(
