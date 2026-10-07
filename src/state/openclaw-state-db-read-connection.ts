@@ -38,6 +38,7 @@ import {
   invalidateOpenClawStateRuntimeIntegrity,
   type OpenClawStateIntegrityPolicy,
 } from "./openclaw-state-db-integrity-admission.js";
+import { normalizeOpenClawStateSchemaReadError } from "./openclaw-state-db-schema-migration-required.js";
 import { isExistingOpenClawStateSchema } from "./openclaw-state-db-schema-policy.js";
 import { assertSupportedStateSchemaVersion } from "./openclaw-state-db-schema-version.js";
 import type { OpenClawStateReadOnlyDatabase } from "./openclaw-state-read.types.js";
@@ -205,6 +206,15 @@ function assertStateReadSchemaForPolicy(
   }
 }
 
+function admitStateReadSchemaFacts(database: DatabaseSync, pathname: string): void {
+  try {
+    admitSqliteSchema(database);
+  } catch (error) {
+    // Catalog admission precedes version validation's legacy-schema diagnostic boundary.
+    throw normalizeOpenClawStateSchemaReadError(error, pathname);
+  }
+}
+
 export function withOpenClawStateReadOnlyLocation<T>(
   operation: (database: OpenClawStateReadOnlyDatabase) => T,
   pathname: string,
@@ -258,7 +268,7 @@ export function readOpenClawStateReadOnlyLocation<T>(
       result = {
         status: "available",
         value: runSqliteReadOperationSync(opened.database.db, () => {
-          admitSqliteSchema(opened.database.db);
+          admitStateReadSchemaFacts(opened.database.db, pathname);
           assertStateReadSchemaForPolicy(opened.database.db, pathname, existingSchema);
           return operation(opened.database);
         }),
@@ -337,7 +347,7 @@ export function openOpenClawStateReadOnlyLocation(
   const connection = openOpenClawStateReadConnection(pathname, source);
   try {
     runSqliteReadOperationSync(connection.database.db, () => {
-      admitSqliteSchema(connection.database.db);
+      admitStateReadSchemaFacts(connection.database.db, pathname);
       assertStateReadSchema(connection.database.db, pathname);
     });
   } catch (error) {

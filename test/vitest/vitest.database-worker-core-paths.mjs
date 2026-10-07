@@ -5,7 +5,6 @@ export const databaseWorkerCoreTestFiles = [
   "src/plugin-sdk/session-transcript-lock.worker.test.ts",
   "src/plugin-sdk/session-transcript-runtime.channel-mirror.test.ts",
   "src/plugin-sdk/session-transcript-runtime.configured-store.test.ts",
-  "src/plugin-sdk/session-transcript-runtime.delivery-facts.test.ts",
   "src/plugin-sdk/session-transcript-lock.native.test.ts",
   "src/gateway/worker-environments/worker-turn-transcript-target.test.ts",
   "src/state/openclaw-agent-db.worker-admission.test.ts",

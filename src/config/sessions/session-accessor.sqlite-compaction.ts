@@ -267,6 +267,7 @@ export async function trimTranscriptForManualCompact(
           `Cannot compact SQLite transcript ${resolved.sessionId} without its current session entry`,
         );
       }
+      // SAFETY: Retained lines are canonical transcript rows selected by the compaction owner.
       const retainedEvents = retainedLines.map((line) => JSON.parse(line) as TranscriptEvent);
       const publish = runOpenClawAgentWriteTransaction(
         (writeDatabase) => {
