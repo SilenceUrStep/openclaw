@@ -15,9 +15,8 @@ import {
 import { addSessionMember, removeSessionMember } from "../../config/sessions.js";
 import { patchSessionEntryCore } from "../../config/sessions/session-accessor.js";
 import { sessionCreatorProfileId } from "../../config/sessions/session-entry-provenance.js";
-import { readSessionEntryReadOnlyInWorker } from "../../config/sessions/session-entry-read-runtime.js";
 import { resolveSessionPublicShare } from "../../config/sessions/session-public-share.js";
-import { listSessionMembersInWorker } from "../../config/sessions/session-sharing-store.js";
+import { readSessionMembersInWorker } from "../../config/sessions/session-sharing-store.js";
 import type { SessionMember as StoredSessionMember } from "../../config/sessions/session-sharing-store.kernel.js";
 import { isIncognitoSessionKey } from "../../routing/session-key.js";
 import { runExclusiveSessionLifecycleMutation } from "../../sessions/session-lifecycle-admission.js";
@@ -185,15 +184,6 @@ function createSessionMembersListHandler(
       const profiles = await measureSessionCollaborationPhase(`${method}.profiles`, () =>
         listProfiles(),
       );
-      const evidenceMembers = (
-        await measureSessionCollaborationPhase(`${method}.evidence`, () =>
-          listSessionMembersInWorker({
-            agentId: managed.agentId,
-            sessionKey: managed.storeKey,
-            storePath: managed.storePath,
-          }),
-        )
-      ).map(projectSessionMemberEvidence);
       do {
         await measureSessionCollaborationPhase(`${method}.projection`, () =>
           Promise.resolve(projection.prepareSelection()),
@@ -202,36 +192,37 @@ function createSessionMembersListHandler(
       let tokenCodec = resolveSessionPublicShare(managed.entry)
         ? await loadPublicSessionShareTokenCodec()
         : undefined;
-      const readEntry = async () => {
-        const entry = await readSessionEntryReadOnlyInWorker(
-          {
+      const readEvidence = async () => {
+        const evidence = await measureSessionCollaborationPhase(`${method}.evidence`, () =>
+          readSessionMembersInWorker({
             agentId: managed.agentId,
             sessionKey: managed.storeKey,
             storePath: managed.storePath,
-            projection: "list",
-          },
-          access.assertCurrent,
+          }),
         );
-        if (!entry) {
+        access.assertCurrent();
+        if (!evidence.entry) {
           throw new Error("session changed before sharing read");
         }
-        return entry;
+        return { entry: evidence.entry, members: evidence.members };
       };
-      let entry = await readEntry();
-      if (resolveSessionPublicShare(entry) && !tokenCodec) {
+      let evidence = await readEvidence();
+      if (resolveSessionPublicShare(evidence.entry) && !tokenCodec) {
         const prepared = loadPublicSessionShareTokenCodec();
         if (prepared instanceof Promise) {
           tokenCodec = await prepared;
           // Foreign publication can reveal a cold codec after discovery. Its wait
           // ends the read phase; authorize only the fresh row from the same target.
-          entry = await readEntry();
+          evidence = await readEvidence();
         } else {
           tokenCodec = prepared;
         }
       }
+      const { entry, members: storedMembers } = evidence;
       const publicShareGrant = resolveSessionPublicShare(entry);
       const currentCfg = context.getRuntimeConfig();
       const { target, role } = access.current(entry);
+      const evidenceMembers = storedMembers.map(projectSessionMemberEvidence);
       const actor = actorIdentity(client);
       const members = evidenceAware
         ? evidenceMembers

@@ -105,10 +105,11 @@ export async function resolveDeviceIdentityForGatewayCall(
     return sharedStateMode === "read-only"
       ? await loadDeviceIdentityIfPresentAsync()
       : await loadOrCreateDeviceIdentityAsync();
-  } catch {
-    // Read-only or restricted environments should still be able to call the
-    // gateway with token/password auth without crashing before the RPC.
-    return null;
+  } catch (cause) {
+    throw new Error(
+      'Cannot load device identity. Check access to your OpenClaw state directory and run "openclaw doctor --fix", then retry.',
+      { cause },
+    );
   }
 }
 
