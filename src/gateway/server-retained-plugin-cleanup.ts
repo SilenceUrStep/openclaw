@@ -15,17 +15,18 @@ export async function cleanupGatewayRetiredPluginArtifacts(params: {
   };
   assertCurrent();
   try {
-    const [retention, captures, captureDirectories, paths] = await Promise.all([
-      import("../plugins/managed-npm-retention.js"),
-      import("../plugins/plugin-source-capture-report.js"),
-      import("../plugins/plugin-source-capture-directory.js"),
-      import("../config/paths.js"),
-    ]);
+    const [retention, captures, { hasPluginNativeCaptureCleanupCandidates }, paths] =
+      await Promise.all([
+        import("../plugins/managed-npm-retention.js"),
+        import("../plugins/plugin-source-capture-report.js"),
+        import("../plugins/plugin-source-capture-directory.js"),
+        import("../config/paths.js"),
+      ]);
     assertCurrent();
     const stateDir = paths.resolveStateDir();
     const candidates = await Promise.all([
       retention.hasRetainedManagedNpmInstallCandidates(),
-      captureDirectories.hasPluginNativeCaptureCleanupCandidates(stateDir),
+      hasPluginNativeCaptureCleanupCandidates(stateDir),
     ]);
     assertCurrent();
     if (!candidates.some(Boolean)) {
