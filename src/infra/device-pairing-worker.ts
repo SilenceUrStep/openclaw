@@ -224,11 +224,11 @@ export function executeDevicePairingMutation<Key extends keyof DevicePairingWork
                 options.admit?.(fact);
               }
               if (request.stage === "commit" && mutation) {
-                const publication = facts.find((fact) => fact.kind === "pairing-publication");
-                if (!publication) {
+                const publicationFact = facts.find((fact) => fact.kind === "pairing-publication");
+                if (!publicationFact) {
                   throw new Error("Pairing commit requires its prospective publication");
                 }
-                mutation.prepare(commitReceipt(publication.receipt));
+                mutation.prepare(commitReceipt(publicationFact.receipt));
               }
               if (request.stage === "commit" && captured.type === "bootstrap.consume") {
                 publishEnvironment = reserveWorkerEnvironmentNativePublication(
