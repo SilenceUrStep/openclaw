@@ -206,6 +206,7 @@ async function runCatalogRequest(
   request: PreparedModelWorkerRequest,
   work: AsyncWorkScope,
   prepareGeneration: () => Promise<WorkerGeneration>,
+  beginDiscovery: () => Promise<void>,
 ): Promise<PreparedModelWorkerResult> {
   const directoryOwner = value.input.agentId
     ? { agentId: value.input.agentId, agentDir: value.input.agentDir, env: value.input.env }
@@ -280,6 +281,9 @@ async function runCatalogRequest(
           ...(value.input.workspaceDir ? { workspaceDir: value.input.workspaceDir } : {}),
         }),
       );
+    if (request.kind === "auth-refresh") {
+      await beginDiscovery();
+    }
     // Full discovery is one point-in-time operation: refresh first, then let every provider hook
     // and the returned availability projection consume the same exact store.
     const authStore = refreshAuthStore({
@@ -365,6 +369,7 @@ async function runCatalogRequest(
       }
     }
     const staticOwner = acquiredGeneration ?? prepared;
+    await beginDiscovery();
     const staticProviderIds = new Set([
       ...staticOwner.staticProviderIds,
       ...exactAgentFacts.providerIds,
@@ -568,7 +573,7 @@ if (parentPort) {
     string | undefined,
     { fingerprint: string; prepared: WorkerGeneration }
   >();
-  serveWorkerTasks(async (input) => {
+  serveWorkerTasks(async (input, channel) => {
     // SAFETY: The typed catalog host is the sole producer of this private task envelope.
     const { value, request } = input as PreparedModelCatalogWorkerTask;
     if (!isRecord(value) || !isWorkerRequest(request)) {
@@ -588,12 +593,26 @@ if (parentPort) {
             const result = await withWorkerAuthProfileWrites(value.input.env, work, () =>
               withClawInstallSchemaVersionFacts(request.clawInstallSchemaVersions, () =>
                 work.run(() =>
-                  runCatalogRequest(value, request, work, async () => {
-                    if (previous?.fingerprint === fingerprint) {
-                      return previous.prepared;
-                    }
-                    return (attempted = await prepareWorkerGeneration(value));
-                  }),
+                  runCatalogRequest(
+                    value,
+                    request,
+                    work,
+                    async () => {
+                      if (previous?.fingerprint === fingerprint) {
+                        return previous.prepared;
+                      }
+                      return (attempted = await prepareWorkerGeneration(value));
+                    },
+                    async () => {
+                      // Admission can outlast a refresh on slow filesystems; only completed
+                      // generation preparation starts the provider-discovery deadline.
+                      const response = await channel?.request(null);
+                      response?.consumed();
+                      if (response && response.input !== true) {
+                        throw new Error("prepared model catalog request retired before discovery");
+                      }
+                    },
+                  ),
                 ),
               ),
             );

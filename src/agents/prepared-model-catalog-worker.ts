@@ -118,8 +118,8 @@ export type PreparedModelWorkerResult =
     }>
   | Readonly<{ status: "failed"; error: string }>;
 
-// Cold source/plugin loading can take well over a minute. Three minutes preserves exact full-view
-// discovery while bounding a wedged provider; expiry rejects and never returns partial results.
+// Parent probes, queued requests and admitted provider discovery are bounded independently.
+// Native plugin admission belongs to the worker generation, outside its refresh deadline.
 export const PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS = 180_000;
 
 const log = createSubsystemLogger("agents/prepared-model-runtime");
@@ -616,6 +616,7 @@ export function createPreparedModelCatalogWorker(
       pending = requestPool.run(
         () => {
           assertCurrent();
+          clearTimeout(timeout);
           task.onRecovery = onRecovery;
           const workerRequest = {
             ...value,
@@ -627,7 +628,14 @@ export function createPreparedModelCatalogWorker(
           }
           return { value: workerInput, request: workerRequest };
         },
-        { timeoutMs: PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS, signal: controller.signal },
+        {
+          signal: controller.signal,
+          onRequest: async () => ({
+            // A retired borrower must not turn admission into a shared worker failure.
+            input: !stoppedError && params.isCurrent(),
+            timeoutMs: PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS,
+          }),
+        },
       );
       tasks.set(pending, task);
       message = await pending;

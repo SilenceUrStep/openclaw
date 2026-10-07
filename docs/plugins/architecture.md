@@ -279,7 +279,8 @@ directory preserves every captured companion and the selected host SDK. Otherwis
 that plugin reports a load error asking for file symlink support; the update
 continues with the existing plugin-failure warning behavior.
 Within a capture, admission checks each immutable namespace and companion-directory
-mapping once. Preparing more modules reuses those facts and checks newly admitted
+mapping once, resolving each member once even when parent and child native directories
+overlap at the same placement. Preparing more modules reuses those facts and checks newly admitted
 placements. Replacement captures, host selection, and recovery copies validate again,
 so Doctor and Gateway preparation avoid repeated walks without reusing another
 capture's verdict.
@@ -476,6 +477,10 @@ acquired by that context. The first catalog request prepares registrations for t
 agent's known configured and credential providers together; only the requested
 providers run catalog hooks. Newly observed owners extend that context without
 discarding earlier owners. Replacement releases them after admitted work settles.
+Native admission runs outside the 180-second catalog refresh deadline, so a slow
+filesystem does not repeatedly discard and recapture the same package. Parent probes
+and queued requests remain bounded; provider discovery starts its own 180-second
+deadline after admission. Inventory retirement and shutdown still close the worker.
 After successful physical cleanup, retired plugin instances release their registry
 references while preserving revocation. Native module exports no longer retain the
 disposed registry through instance ownership, and stale calls remain rejected. Pending or failed
