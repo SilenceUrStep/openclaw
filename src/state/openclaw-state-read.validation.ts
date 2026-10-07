@@ -46,6 +46,9 @@ export function isReadRequest(input: unknown): input is OpenClawStateReadRequest
         isRecord(input.command.input) &&
         typeof input.command.input.channel === "string" &&
         typeof input.command.input.accountId === "string") ||
+      (input.command.type === "gatewayBoot.breaker" &&
+        typeof input.command.input === "number" &&
+        Number.isSafeInteger(input.command.input)) ||
       ((input.command.type === "localWorkspace.get" ||
         input.command.type === "localWorkspace.exists") &&
         isRecord(input.command.input) &&

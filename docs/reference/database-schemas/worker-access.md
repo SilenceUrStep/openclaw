@@ -45,6 +45,13 @@ history. Ordered reads still retain the database writer FIFO and revalidate thei
 physical source and current permissions. Transcript payloads keep their history
 worker; schemas, stored data, configuration, and update behavior are unchanged.
 
+Worker read-only agent connections load existing file-bound canonical validation receipts
+at admission, before a read transaction begins. Reopening a reader then validates
+pending keys without repeating a complete session inventory. Copied or replaced
+files still require their own validation; canonical receipts never grant integrity
+proof. Writer FIFO ordering, current-authority checks, schemas, and update behavior
+remain unchanged.
+
 Reply initialization, agent-turn preparation, and status rendering recover missing
 lifecycle timestamps through the transcript reader. Header reads retain their
 physical database owner and accept results under the existing writer FIFO with a
@@ -2297,6 +2304,23 @@ private rows retain facts only for the request's synchronous publication frame.
 Schemas, stored values, permissions, retention, and update behavior are unchanged.
 
 ## Migrate a caller
+
+Rescue-message approval consumption, revocation, and replacement use the existing
+plugin-state worker. Replacement preserves the committed revocation before a new
+plan is registered, including when its preparation fails; each transaction checks
+current caller authority. OpenRouter runtime capability reads and catalog
+replacement use the same worker, retaining the original physical store across
+network waits. Catalog replacement batches its writes in one transaction, and
+model-runtime close joins accepted refreshes before database retirement.
+
+The synchronous keyed-store SDK and its callback mutations remain available under
+the released `v2026.9.8` contract until the next Plugin SDK major. The deprecated
+OpenRouter synchronous capability getter also retains its cold persisted read;
+bundled model resolution uses the awaited loader and memory-only getter. Context
+engine activation already joins worker cleanup on runtime paths; its synchronous
+cleanup remains for the released provider-catalog SDK and CLI onboarding. These
+shared kernels therefore remain in the T1 inventory. Schemas, stored formats,
+retention, and update behavior are unchanged.
 
 Completed-child archive lookups resolve durable store ownership and check exact
 archive registration through the existing history reader. Empty lookups do not

@@ -53,6 +53,7 @@ import {
 import { restartRunningChannelAccounts } from "./channel-thaw-restart.js";
 import { createGatewayMethodRegistry } from "./methods/registry.js";
 import { createChannelManager, type ChannelManager } from "./server-channels.js";
+import { registerChannelAutostartRecoveryTests } from "./server-channels.recovery.test-support.js";
 import {
   createTestPlugin,
   createTestChannelRegistry,
@@ -2741,82 +2742,7 @@ describe("server-channels auto restart", () => {
     expect((ctx?.log as SubsystemLogger | undefined)?.subsystem).toBe("channels/slack");
   });
 
-  it("recovers suppressed autostart without undoing manual stops", async () => {
-    const startAccount = vi.fn(stayRunning);
-    installTestRegistry(
-      createTestPlugin({
-        startAccount,
-        listAccountIds: () => [DEFAULT_ACCOUNT_ID, "work"],
-      }),
-    );
-    const tryRecover = vi.fn(() => true);
-    const manager = createManager({
-      tryRecoverAutostartSuppression: tryRecover,
-      getRuntimeConfig: () => ({
-        channels: { discord: { healthMonitor: { enabled: false } } },
-      }),
-    });
-    manager.setAutostartSuppression({
-      reason: "crash-loop-breaker",
-      message: "safe mode",
-    });
-
-    await manager.startChannels();
-    await manager.startChannel("discord", DEFAULT_ACCOUNT_ID, { manual: true });
-    await manager.stopChannel("discord", DEFAULT_ACCOUNT_ID);
-    await manager.recoverAutostartSuppression();
-    await flushMicrotasks();
-
-    expect(tryRecover).toHaveBeenCalledOnce();
-    expect(manager.getAutostartSuppression()).toBeNull();
-    expect(startAccount.mock.calls.map(([ctx]) => ctx.accountId)).toEqual([
-      DEFAULT_ACCOUNT_ID,
-      "work",
-    ]);
-    expect(manager.isHealthMonitorEnabled("discord", "work")).toBe(false);
-    expect(manager.isManuallyStopped("discord", DEFAULT_ACCOUNT_ID)).toBe(true);
-  });
-
-  it("does not start recovered accounts after gateway close begins during handoff", async () => {
-    const accountStartReady = createDeferred();
-    const startAccount = vi.fn(async () => {});
-    let closing = false;
-    installTestRegistry(createTestPlugin({ startAccount }));
-    const manager = createManager({
-      deferStartupAccountStartsUntil: accountStartReady.promise,
-      isClosing: () => closing,
-      tryRecoverAutostartSuppression: () => true,
-    });
-    manager.setAutostartSuppression({
-      reason: "crash-loop-breaker",
-      message: "safe mode",
-    });
-
-    const recovery = manager.recoverAutostartSuppression();
-    await flushMicrotasks();
-    closing = true;
-    accountStartReady.resolve();
-    await recovery;
-    await flushMicrotasks();
-
-    expect(manager.getAutostartSuppression()).toBeNull();
-    expect(startAccount).not.toHaveBeenCalled();
-  });
-
-  it("keeps suppression when persisted recovery is not proven", async () => {
-    const startAccount = vi.fn(async () => {});
-    installTestRegistry(createTestPlugin({ startAccount }));
-    const manager = createManager({ tryRecoverAutostartSuppression: () => false });
-    manager.setAutostartSuppression({
-      reason: "crash-loop-breaker",
-      message: "safe mode",
-    });
-
-    await expect(manager.recoverAutostartSuppression()).resolves.toBe(false);
-
-    expect(manager.getAutostartSuppression()?.reason).toBe("crash-loop-breaker");
-    expect(startAccount).not.toHaveBeenCalled();
-  });
+  registerChannelAutostartRecoveryTests({ createManager, installTestRegistry, stayRunning });
 
   it("suppresses ambient channel autostart while allowing manual starts", async () => {
     const startAccount = vi.fn(async (_ctx: ChannelGatewayContext<TestAccount>) => {});

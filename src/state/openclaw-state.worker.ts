@@ -143,9 +143,14 @@ function createSharedStateWorkerBackend(
       throw new Error("Shared-state worker lost its retained native database");
     }
   };
-  const open = (): OpenClawStateDatabase => {
+  const open = (admission: "open" | "transaction" = "open"): OpenClawStateDatabase => {
     const database = retainDatabase();
     assertRetainedDatabase(database);
+    // Plugin-state mutations validate schema and ownership after BEGIN. Reuse
+    // this retained handle without repeating that row read before the transaction.
+    if (admission === "transaction") {
+      return database;
+    }
     return openOpenClawStateDatabase({
       database,
       path: context.databasePath,
@@ -351,7 +356,7 @@ function createSharedStateWorkerBackend(
             path: context.databasePath,
             env: getSqliteWorkerStateContext().environment,
           },
-          open,
+          () => open("transaction"),
           nativeDatabase?.db.isOpen === true,
         );
       }

@@ -4740,7 +4740,6 @@
 ["src/cli/gateway-cli/run.option-collisions.test.ts","../../gateway/ws-logging.js","b5ed171594b2549912181a92ac5c36cc0a5451ef9323ddb569f1253fdbc27787",1]
 ["src/cli/gateway-cli/run.option-collisions.test.ts","../../globals.js","cc4effd06eaa18308402abed473fcc3051b0e51cd489e9d36d74eefd34b6ff1c",1]
 ["src/cli/gateway-cli/run.option-collisions.test.ts","../../infra/dotenv-global.js","e92bee9535629f228c7008eb40e6ca4d04298fdb691c2b37fc3658566c1c626a",1]
-["src/cli/gateway-cli/run.option-collisions.test.ts","../../infra/gateway-boot-lifecycle.js","7d2110f559d5118e397c35c7de54990381b08c017b864ef833a6e53742b1b9f4",1]
 ["src/cli/gateway-cli/run.option-collisions.test.ts","../../infra/gateway-processes.js","5b5c4e7e3b0aa8f468dfbab0ce7599d3a78a60c6301360bdd16a324e24fb856d",1]
 ["src/cli/gateway-cli/run.option-collisions.test.ts","../../infra/ports-format.js","9e1d1d8e64149a704fe70997690aab42a096fb6ea7e186dff73cdc24ecc96342",1]
 ["src/cli/gateway-cli/run.option-collisions.test.ts","../../infra/ports-inspect.js","5d597fab261fbd211a4ebc191868cc1f5633fe093fb4cdd08980256d49880931",1]

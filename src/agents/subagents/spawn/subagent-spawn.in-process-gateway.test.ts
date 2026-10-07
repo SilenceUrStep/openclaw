@@ -157,6 +157,7 @@ describe("spawnSubagentDirect in-process Gateway collector launch", () => {
     const subordinateAdmissionStates: boolean[] = [];
     let launchCount = 0;
     gatewayContext.recoveryRuntime = {
+      prepareRestartRecovery: () => undefined,
       waitForAgent: async <T>(params: { runId: string }): Promise<T> => {
         const index = launchedRunIds.indexOf(params.runId);
         const terminal = expectDefined(terminalReplies[index], "launched collector terminal owner");
