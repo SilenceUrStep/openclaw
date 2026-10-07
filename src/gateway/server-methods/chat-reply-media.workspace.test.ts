@@ -17,9 +17,10 @@ import { createWorkerSessionPlacementStore } from "../worker-environments/placem
 import { buildAssistantReplyContent } from "./chat-assistant-content.js";
 import {
   captureWebchatReplyMediaScope,
-  prepareWebchatReplyMediaLocalRoots,
+  getWebchatReplyMediaLocalRoots,
   normalizeWebchatReplyMediaPathsForDisplay,
 } from "./chat-reply-media.js";
+import { seedWebchatReplyMediaScope } from "./chat-reply-media.test-support.js";
 
 const PNG_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
@@ -146,11 +147,14 @@ describe("WebChat reply media workspace ownership", () => {
       spawnedWorkspaceDir: worktree,
       spawnedCwd: path.join(worktree, "nested"),
     };
-    const [payload] = await normalizeWebchatReplyMediaPathsForDisplay({
+    const scope = await seedWebchatReplyMediaScope({
       cfg,
       agentId: "main",
       sessionKey: TEST_SESSION_KEY,
       sessionEntry,
+    });
+    const [payload] = await normalizeWebchatReplyMediaPathsForDisplay({
+      ...scope,
       payloads: [{ mediaUrls: ["./chart.png"] }],
     });
     const stagedPath = requireString(payload?.mediaUrls?.[0], "staged workspace image");
@@ -159,11 +163,7 @@ describe("WebChat reply media workspace ownership", () => {
       sessionKey: TEST_SESSION_KEY,
       agentId: "main",
       payloads: [{ mediaUrls: [sourcePath], trustedLocalMedia: true }],
-      managedMediaLocalRoots: await prepareWebchatReplyMediaLocalRoots({
-        cfg,
-        agentId: "main",
-        sessionEntry,
-      }),
+      managedMediaLocalRoots: getWebchatReplyMediaLocalRoots(scope),
     });
     expect(assistantContent).toEqual([expect.objectContaining({ type: "image" })]);
   });
@@ -207,11 +207,14 @@ describe("WebChat reply media workspace ownership", () => {
         sessionRoot: selected,
         permissionMode: mode,
       };
-      const payloads = await normalizeWebchatReplyMediaPathsForDisplay({
+      const scope = await seedWebchatReplyMediaScope({
         cfg,
         agentId: "main",
         sessionKey: TEST_SESSION_KEY,
         sessionEntry,
+      });
+      const payloads = await normalizeWebchatReplyMediaPathsForDisplay({
+        ...scope,
         payloads: imagePaths.map((source) => ({ mediaUrls: [source] })),
       });
       for (const [index, payload] of payloads.entries()) {
@@ -225,17 +228,10 @@ describe("WebChat reply media workspace ownership", () => {
         }
       }
       const trustedAudioPayloads = await normalizeWebchatReplyMediaPathsForDisplay({
-        cfg,
-        agentId: "main",
-        sessionKey: TEST_SESSION_KEY,
-        sessionEntry,
+        ...scope,
         payloads: audioPaths.map((source) => ({ mediaUrls: [source], trustedLocalMedia: true })),
       });
-      const localRoots = await prepareWebchatReplyMediaLocalRoots({
-        cfg,
-        agentId: "main",
-        sessionEntry,
-      });
+      const localRoots = getWebchatReplyMediaLocalRoots(scope);
       const { assistantContent } = await buildAssistantReplyContent({
         sessionKey: TEST_SESSION_KEY,
         agentId: "main",
@@ -259,7 +255,7 @@ describe("WebChat reply media workspace ownership", () => {
     const source = path.join(selected, "private.png");
     await fs.mkdir(selected, { recursive: true });
     await fs.writeFile(source, PNG_BYTES);
-    const [payload] = await normalizeWebchatReplyMediaPathsForDisplay({
+    const scope = await seedWebchatReplyMediaScope({
       cfg,
       agentId: "main",
       sessionKey: TEST_SESSION_KEY,
@@ -269,6 +265,9 @@ describe("WebChat reply media workspace ownership", () => {
         sessionRoot: selected,
         permissionMode,
       },
+    });
+    const [payload] = await normalizeWebchatReplyMediaPathsForDisplay({
+      ...scope,
       payloads: [{ mediaUrls: [source] }],
     });
     expect(payload?.mediaUrls).toBeUndefined();
@@ -308,7 +307,7 @@ describe("WebChat reply media workspace ownership", () => {
       throw new Error("expected sandbox workspace");
     }
     await fs.writeFile(path.join(sandbox.workspaceDir, "sandbox.png"), PNG_BYTES);
-    const payloads = await normalizeWebchatReplyMediaPathsForDisplay({
+    const scope = await seedWebchatReplyMediaScope({
       cfg,
       agentId: "main",
       sessionKey: TEST_SESSION_KEY,
@@ -318,6 +317,9 @@ describe("WebChat reply media workspace ownership", () => {
         sessionRoot: selected,
         permissionMode,
       },
+    });
+    const payloads = await normalizeWebchatReplyMediaPathsForDisplay({
+      ...scope,
       payloads: [{ mediaUrls: [source] }, { mediaUrls: ["./sandbox.png"] }],
     });
     expect(payloads[0]?.mediaUrls).toBeUndefined();
@@ -368,11 +370,14 @@ describe("WebChat reply media workspace ownership", () => {
       const remoteUrl = "https://example.test/remote.png";
       const dataUrl = dataImageUrl();
       const sources = [...rawImages, ...managedImages, remoteUrl, dataUrl];
-      const payloads = await normalizeWebchatReplyMediaPathsForDisplay({
+      const scope = await seedWebchatReplyMediaScope({
         cfg,
         agentId: "main",
         sessionKey: TEST_SESSION_KEY,
         sessionEntry,
+      });
+      const payloads = await normalizeWebchatReplyMediaPathsForDisplay({
+        ...scope,
         payloads: sources.map((source) => ({ mediaUrls: [source] })),
       });
       for (const payload of payloads.slice(0, rawImages.length)) {
@@ -395,12 +400,7 @@ describe("WebChat reply media workspace ownership", () => {
               .path,
         ),
       );
-      const localRoots = await prepareWebchatReplyMediaLocalRoots({
-        cfg,
-        agentId: "main",
-        sessionEntry,
-        storePath,
-      });
+      const localRoots = getWebchatReplyMediaLocalRoots({ ...scope, storePath });
       const { assistantContent } = await buildAssistantReplyContent({
         sessionKey: TEST_SESSION_KEY,
         agentId: "main",
@@ -438,11 +438,14 @@ describe("WebChat reply media workspace ownership", () => {
       execNode: "remote-node",
       permissionMode: "full",
     };
-    const [untrusted] = await normalizeWebchatReplyMediaPathsForDisplay({
+    const scope = await seedWebchatReplyMediaScope({
       cfg,
       agentId: "main",
       sessionKey: TEST_SESSION_KEY,
       sessionEntry,
+    });
+    const [untrusted] = await normalizeWebchatReplyMediaPathsForDisplay({
+      ...scope,
       payloads: [{ mediaUrls: [aliasedSource] }],
     });
     expect(untrusted?.mediaUrls).toBeUndefined();
@@ -450,11 +453,7 @@ describe("WebChat reply media workspace ownership", () => {
       sessionKey: TEST_SESSION_KEY,
       agentId: "main",
       payloads: [{ mediaUrls: [aliasedSource], trustedLocalMedia: true }],
-      managedMediaLocalRoots: await prepareWebchatReplyMediaLocalRoots({
-        cfg,
-        agentId: "main",
-        sessionEntry,
-      }),
+      managedMediaLocalRoots: getWebchatReplyMediaLocalRoots(scope),
     });
     expect(assistantContent).toEqual([expect.objectContaining({ type: "attachment_error" })]);
   });

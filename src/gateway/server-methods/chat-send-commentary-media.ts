@@ -34,7 +34,7 @@ import { formatForLog } from "../ws-log.js";
 import type { AssistantDisplayContentBlock } from "./chat-assistant-content.js";
 import {
   captureWebchatReplyMediaScope,
-  prepareWebchatReplyMediaLocalRoots,
+  getWebchatReplyMediaLocalRoots,
   normalizeWebchatReplyMediaPathsForDisplay,
   type WebchatReplyMediaRequesterContext,
 } from "./chat-reply-media.js";
@@ -218,17 +218,11 @@ function observeChatSendCommentaryMedia(params: AssistantCommentaryMediaCustodyP
               assertCurrent,
             });
             await withChannelReadAuthority(mediaScope.assertCurrent, async () => {
-              const payloads = await normalizeWebchatReplyMediaPathsForDisplay(
-                {
-                  ...mediaScope,
-                  payloads: mediaUrls.map((url) => ({ mediaUrls: [url] })),
-                },
-                mediaScope.workspace,
-              );
-              const localRoots = await prepareWebchatReplyMediaLocalRoots(
-                mediaScope,
-                mediaScope.workspace,
-              );
+              const payloads = await normalizeWebchatReplyMediaPathsForDisplay({
+                ...mediaScope,
+                payloads: mediaUrls.map((url) => ({ mediaUrls: [url] })),
+              });
+              const localRoots = getWebchatReplyMediaLocalRoots(mediaScope);
               assertCurrent();
               for (const [index, payload] of payloads.entries()) {
                 // History ownership starts after the rewrite; GC can run during preparation.

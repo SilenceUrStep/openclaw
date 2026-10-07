@@ -32,7 +32,6 @@ import {
 import { loadSessionEntry } from "../session-utils.js";
 import { resolveSessionWorkerPlacementContext } from "../session-worker-placement-context.js";
 import { resolveSessionWorkspaceRoots } from "../session-workspace-roots.js";
-import { readSessionWorkerPlacementAsync } from "../worker-environments/session-placement-lifecycle.js";
 import { buildAssistantReplyContentFromInputs } from "./chat-assistant-content.js";
 import {
   readChatSendReplyPayload,
@@ -153,17 +152,16 @@ export async function withPreparedWebchatReplyMedia<T>(
   return await withChannelReadAuthority(
     scope.assertCurrent,
     async () => {
-      const workspace = scope.workspace;
-      const payloads = await normalizeWebchatReplyMediaPathsForDisplay(
-        { ...scope, payloads: sourcePayloads },
-        workspace,
-      );
+      const payloads = await normalizeWebchatReplyMediaPathsForDisplay({
+        ...scope,
+        payloads: sourcePayloads,
+      });
       const inputsByIndex = params.inputs.map((input, index) => {
         const payload = payloads[index];
         return payload ? replaceChatSendReplyPayload(input, payload) : [];
       });
       const localRoots = hasMedia
-        ? getWebchatReplyMediaLocalRoots({ ...scope, storePath: params.storePath }, workspace)
+        ? getWebchatReplyMediaLocalRoots({ ...scope, storePath: params.storePath })
         : [];
       return prepare({
         payloads,
@@ -210,14 +208,10 @@ export async function prepareWebchatReplyMediaForDisplay(
   );
 }
 
-function resolveWebchatReplyWorkspace(
-  params: WebchatReplyMediaScope,
-  prepared?: { placement: Awaited<ReturnType<typeof readSessionWorkerPlacementAsync>> },
-) {
+function resolveWebchatReplyWorkspace(params: WebchatReplyMediaScope) {
   const entry = params.sessionEntry;
-  const placement = prepared
-    ? prepared.placement
-    : entry?.sessionId && !entry.execNode && !entry.repositoryWorkspaceId
+  const placement =
+    entry?.sessionId && !entry.execNode && !entry.repositoryWorkspaceId
       ? resolveSessionWorkerPlacementContext()
           .workerSessionPlacementService?.getMany([entry.sessionId])
           .get(entry.sessionId)
@@ -238,29 +232,6 @@ function resolveWebchatReplyWorkspace(
   };
 }
 
-async function prepareWebchatReplyWorkspace(params: WebchatReplyMediaScope) {
-  const placement =
-    params.sessionEntry?.sessionId &&
-    !params.sessionEntry.execNode &&
-    !params.sessionEntry.repositoryWorkspaceId
-      ? await readSessionWorkerPlacementAsync({
-          context: resolveSessionWorkerPlacementContext(),
-          sessionId: params.sessionEntry.sessionId,
-        })
-      : undefined;
-  return resolveWebchatReplyWorkspace(params, { placement });
-}
-
-export async function prepareWebchatReplyMediaLocalRoots(
-  params: WebchatReplyMediaScope & { storePath?: string },
-  preparedWorkspace?: ReturnType<typeof resolveWebchatReplyWorkspace>,
-) {
-  return getWebchatReplyMediaLocalRoots(
-    params,
-    preparedWorkspace ?? (await prepareWebchatReplyWorkspace(params)),
-  );
-}
-
 function resolveWebchatReplyWorkspaceOnly(params: WebchatReplyMediaScope): boolean {
   const mode = params.sessionEntry?.permissionMode;
   return mode
@@ -269,11 +240,10 @@ function resolveWebchatReplyWorkspaceOnly(params: WebchatReplyMediaScope): boole
 }
 
 /** Trusted audio bypasses staging, but its reader must use the same session workspace. */
-function getWebchatReplyMediaLocalRoots(
-  params: WebchatReplyMediaScope & { storePath?: string },
-  workspace: ReturnType<typeof resolveWebchatReplyWorkspace>,
+export function getWebchatReplyMediaLocalRoots(
+  params: ReturnType<typeof captureWebchatReplyMediaScope> & { storePath?: string },
 ): readonly string[] {
-  const { remote, workspaceDir } = workspace;
+  const { remote, workspaceDir } = params.workspace;
   if (remote) {
     return [getMediaDir()];
   }
@@ -321,12 +291,9 @@ function shouldPreserveDisplayMediaUrl(payload: ReplyPayload, mediaUrl: string):
 
 /** Normalize reply media paths for webchat display without leaking sensitive media. */
 export async function normalizeWebchatReplyMediaPathsForDisplay(
-  params: WebchatReplyMediaScope & {
-    sessionKey: string;
-    accountId?: string;
+  params: ReturnType<typeof captureWebchatReplyMediaScope> & {
     payloads: ReplyPayload[];
   },
-  preparedWorkspace?: ReturnType<typeof resolveWebchatReplyWorkspace>,
 ): Promise<ReplyPayload[]> {
   return await withChannelReadAuthority(params.assertCurrent, async () => {
     if (
@@ -340,8 +307,7 @@ export async function normalizeWebchatReplyMediaPathsForDisplay(
     ) {
       return params.payloads;
     }
-    const { remote, workspaceDir } =
-      preparedWorkspace ?? (await prepareWebchatReplyWorkspace(params));
+    const { remote, workspaceDir } = params.workspace;
     if (!workspaceDir) {
       return params.payloads;
     }
