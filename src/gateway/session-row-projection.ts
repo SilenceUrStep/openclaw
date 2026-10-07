@@ -35,6 +35,7 @@ import { createSessionRowProjectionContext } from "./session-row-projection-cont
 import { createSessionRowGenerationObservations } from "./session-row-projection-generation.js";
 import { createSessionRowCreatorIndex } from "./session-row-projection-identities.js";
 import * as rowReads from "./session-row-projection-materialize.js";
+import { createSessionRowPublication } from "./session-row-projection-publication.js";
 import * as records from "./session-row-projection-record.js";
 import { createSessionRowRefresh } from "./session-row-projection-refresh.js";
 import { createSessionRowProjectionRevisions } from "./session-row-projection-revisions.js";
@@ -222,7 +223,7 @@ export async function createSessionRowProjection(params: records.ProjectionOptio
       }
     }
   }
-  const markStoredRow = rowReads.createSessionRowPublication({
+  const markStoredRow = createSessionRowPublication({
     store: (path) => stores.get(path),
     runAsOwner: inOwnerContext,
     registryFactsReady: () => Boolean(inOwnerContext(subagents.snapshotIdentity)),
@@ -390,7 +391,10 @@ export async function createSessionRowProjection(params: records.ProjectionOptio
     preparedDatabaseFacts?: records.PreparedSessionRowDatabaseFacts,
     repositoryWorkspace?: records.Inputs["preparedRepositoryWorkspace"],
   ) {
-    const databaseFacts = preparedDatabaseFacts ?? row.retainedDatabaseFacts;
+    const retained = row.retainedDatabaseFacts;
+    const databaseFacts =
+      preparedDatabaseFacts ??
+      (records.isPreparedSessionRowDatabaseFacts(retained) ? retained : undefined);
     if (!row.entry || (!databaseFacts && !isIncognitoSessionKey(row.key))) {
       return false;
     }
