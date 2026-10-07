@@ -23,7 +23,7 @@ import { createSessionMembershipProjection } from "./session-membership-projecti
 import { createSessionProjectionDrain, yieldSessionListWork } from "./session-projection-work.js";
 import * as rowMembership from "./session-row-membership-read.js";
 import { createSessionRowPlacementProjection } from "./session-row-placement-projection.js";
-import type { SessionRowReadView } from "./session-row-prepared-read.js";
+import type { readPreparedSessionRows } from "./session-row-prepared-read.js";
 import * as rowRelations from "./session-row-projection-ancestors.js";
 import {
   createSessionRowProjectionArchive,
@@ -614,7 +614,7 @@ export async function createSessionRowProjection(params: records.ProjectionOptio
       topology,
       lookup,
       stores: () => stores,
-      owner: (): SessionRowReadView & { isCurrent: typeof isCurrent } => projection,
+      owner: (): Parameters<typeof readPreparedSessionRows>[0] => projection,
       needsRowFactsPreparation: rowFacts.needsPreparation,
       prepareRowFacts: rowFacts.prepare,
     });
@@ -659,10 +659,7 @@ export async function createSessionRowProjection(params: records.ProjectionOptio
         needsPreparation: needsExactMembershipPreparation,
       },
       isActive: () => !disposed,
-      projection: (): SessionRowReadView & {
-        isCurrent(row: records.Row): boolean;
-        getPolicyConfig: typeof getPolicyConfig;
-      } => projection,
+      projection: (): Parameters<typeof readPreparedSessionRows>[0] => projection,
     }),
     setArchivePageSize: archive.setPageSize,
     modelFacts: rowReads.createSessionRowModelFactsReader({
