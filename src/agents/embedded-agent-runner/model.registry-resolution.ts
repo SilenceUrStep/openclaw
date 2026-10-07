@@ -31,7 +31,6 @@ import {
   type ProviderRuntimeHooks,
 } from "./model.provider-hooks.js";
 import {
-  resolveBundledStaticCatalogModel,
   resolveManifestModelCatalogProviderAliasMetadata,
   type ManifestModelCatalogProviderAliasMetadata,
 } from "./model.static-catalog.js";
@@ -361,7 +360,7 @@ export function normalizeProviderModelRef(params: {
   };
 }
 
-type ResolveModelWithRegistryParams = {
+type ResolveModelWithPreparedRegistryParams = {
   abortSignal?: AbortSignal;
   assertCurrent?: () => void;
   provider: string;
@@ -376,9 +375,6 @@ type ResolveModelWithRegistryParams = {
   preferredProfile?: string;
   runtimeHooks?: ProviderRuntimeHooks;
   skipConfiguredFallback?: boolean;
-};
-
-type ResolveModelWithPreparedRegistryParams = ResolveModelWithRegistryParams & {
   manifestAlias: ManifestModelCatalogProviderAliasMetadata;
   // An empty result is prepared too; a dynamic-model miss must not read auth again.
   preparedAuthProfile?: DynamicModelAuthProfile;
@@ -423,34 +419,4 @@ export async function resolveModelWithPreparedRegistry(
         ...params,
         providerMetadataOwners: getRegistryProviderMetadataOwners(params.modelRegistry),
       });
-}
-
-export async function resolveModelWithRegistry(
-  params: ResolveModelWithRegistryParams,
-): Promise<Model | undefined> {
-  const workspaceDir = params.workspaceDir ?? params.cfg?.agents?.defaults?.workspace;
-  const normalizedRef = normalizeProviderModelRef({ ...params, workspaceDir });
-  let staticCatalogResolved = false;
-  let staticCatalogModel: ProviderRuntimeModel | undefined;
-  const getStaticCatalogModel = () => {
-    if (!staticCatalogResolved) {
-      staticCatalogResolved = true;
-      staticCatalogModel = resolveBundledStaticCatalogModel({
-        provider: normalizedRef.provider,
-        modelId: normalizedRef.model,
-        cfg: params.cfg,
-        workspaceDir,
-        includeRuntimeDiscovery: true,
-      });
-    }
-    return staticCatalogModel;
-  };
-  return resolveModelWithPreparedRegistry({
-    ...params,
-    provider: normalizedRef.provider,
-    modelId: normalizedRef.model,
-    manifestAlias: normalizedRef.manifestAlias,
-    getStaticCatalogModel,
-    ...(workspaceDir !== undefined ? { workspaceDir } : {}),
-  });
 }

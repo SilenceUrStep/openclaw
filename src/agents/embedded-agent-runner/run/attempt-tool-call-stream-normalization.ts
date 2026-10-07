@@ -231,64 +231,45 @@ function wrapStreamTrimToolCallNames(
     seenToolCallIds: Set<string>;
   },
 ): AssistantStream {
-  const unknownToolGuardState = options.state;
   // Missing or colliding ids reuse one fallback per content position across
   // this response's partial/final projections; later responses get fresh ids.
   const fallbackIdByContentIndex: string[] = [];
   let streamAttemptAlreadyCounted = false;
-  const originalResult = stream.result.bind(stream);
-  stream.result = async () => {
-    const message = await originalResult();
-    const toolCallState = normalizeToolCallsInMessage(
+  const normalize = (message: unknown) =>
+    normalizeToolCallsInMessage(
       message,
       allowedToolNames,
       fallbackIdByContentIndex,
       options.earlierToolCallIds,
       options.seenToolCallIds,
     );
-    guardUnknownToolLoopInMessage(message, toolCallState, unknownToolGuardState, {
+  const guard = (
+    message: unknown,
+    toolCallState: ToolCallMessageState,
+    projection: "partial" | "message" | "result",
+  ) =>
+    guardUnknownToolLoopInMessage(message, toolCallState, options.state, {
       threshold: options.unknownToolThreshold,
-      countAttempt: !streamAttemptAlreadyCounted,
-      projection: "result",
+      countAttempt: projection !== "partial" && !streamAttemptAlreadyCounted,
+      projection,
     });
+  const originalResult = stream.result.bind(stream);
+  stream.result = async () => {
+    const message = await originalResult();
+    guard(message, normalize(message), "result");
     return message;
   };
 
   wrapStreamObjectEvents(stream, (event) => {
-    const partialState = normalizeToolCallsInMessage(
-      event.partial,
-      allowedToolNames,
-      fallbackIdByContentIndex,
-      options.earlierToolCallIds,
-      options.seenToolCallIds,
-    );
-    const messageState = normalizeToolCallsInMessage(
-      event.message,
-      allowedToolNames,
-      fallbackIdByContentIndex,
-      options.earlierToolCallIds,
-      options.seenToolCallIds,
-    );
+    const partialState = normalize(event.partial);
+    const messageState = normalize(event.message);
     if (event.message && typeof event.message === "object") {
-      const countedStreamAttempt = guardUnknownToolLoopInMessage(
-        event.message,
-        messageState,
-        unknownToolGuardState,
-        {
-          threshold: options.unknownToolThreshold,
-          countAttempt: !streamAttemptAlreadyCounted,
-          projection: "message",
-        },
-      );
+      const countedStreamAttempt = guard(event.message, messageState, "message");
       streamAttemptAlreadyCounted ||= countedStreamAttempt;
     }
     // The message guard already handles aliased partials and may replace their content.
     if (event.partial !== event.message) {
-      guardUnknownToolLoopInMessage(event.partial, partialState, unknownToolGuardState, {
-        threshold: options.unknownToolThreshold,
-        countAttempt: false,
-        projection: "partial",
-      });
+      guard(event.partial, partialState, "partial");
     }
   });
 

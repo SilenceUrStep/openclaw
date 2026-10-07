@@ -127,56 +127,31 @@ export function dropThinkingBlocks(messages: AgentMessage[]): AgentMessage[] {
   );
 }
 
-function shouldPreserveCurrentToolTurnReasoning(
-  messages: AgentMessage[],
-  index: number,
-  latestUserIndex: number,
-): boolean {
-  const message = messages.at(index);
-  if (
-    !message ||
-    index < latestUserIndex ||
-    !isAssistantMessageWithContent(message) ||
-    !message.content.some(isToolCallBlock)
-  ) {
-    return false;
-  }
-
-  for (let i = index - 1; i >= 0; i -= 1) {
-    const role = messages.at(i)?.role;
-    if (role === "user") {
-      break;
-    }
-    if (role === "assistant") {
-      return false;
-    }
-  }
-
-  for (let i = index + 1; i < messages.length; i += 1) {
-    const next = messages.at(i);
-    const role = next?.role;
-    if (next && typeof next === "object" && role === "toolResult") {
-      return true;
-    }
-    if (role === "user") {
-      return false;
-    }
-  }
-
-  return false;
+function findCurrentToolTurnAssistantIndex(messages: AgentMessage[]): number {
+  const latestUserIndex = messages.findLastIndex((message) => message?.role === "user");
+  // Even an assistant without content ends the first-assistant eligibility window.
+  const index = messages.findIndex(
+    (message, candidateIndex) => candidateIndex > latestUserIndex && message?.role === "assistant",
+  );
+  const message = messages[index];
+  return message &&
+    isAssistantMessageWithContent(message) &&
+    message.content.some(isToolCallBlock) &&
+    messages.some(
+      (next, nextIndex) =>
+        nextIndex > index && next && typeof next === "object" && next.role === "toolResult",
+    )
+    ? index
+    : -1;
 }
 
 export function shouldPreserveLatestAssistantThinking(messages: AgentMessage[]): boolean {
   const latestAssistantIndex = messages.findLastIndex(isAssistantMessageWithContent);
-  if (latestAssistantIndex < 0) {
-    return false;
-  }
-  if (latestAssistantIndex === messages.length - 1) {
-    return true;
-  }
-
-  const latestUserIndex = messages.findLastIndex((message) => message?.role === "user");
-  return shouldPreserveCurrentToolTurnReasoning(messages, latestAssistantIndex, latestUserIndex);
+  return (
+    latestAssistantIndex >= 0 &&
+    (latestAssistantIndex === messages.length - 1 ||
+      latestAssistantIndex === findCurrentToolTurnAssistantIndex(messages))
+  );
 }
 
 export function stripThinkingBlocksFromMessage(message: AgentMessage): AgentMessage {
@@ -191,11 +166,9 @@ function stripAllThinkingBlocks(messages: AgentMessage[]): AgentMessage[] {
 }
 
 export function dropReasoningFromHistory(messages: AgentMessage[]): AgentMessage[] {
-  const latestUserIndex = messages.findLastIndex((message) => message?.role === "user");
+  const currentToolTurnAssistantIndex = findCurrentToolTurnAssistantIndex(messages);
   return mapAssistantMessages(messages, (message, index) =>
-    shouldPreserveCurrentToolTurnReasoning(messages, index, latestUserIndex)
-      ? message
-      : stripThinkingBlocksFromMessage(message),
+    index === currentToolTurnAssistantIndex ? message : stripThinkingBlocksFromMessage(message),
   );
 }
 
