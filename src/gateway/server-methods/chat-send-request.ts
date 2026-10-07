@@ -89,13 +89,13 @@ type NormalizeChatSendRequestResult =
   | { ok: false; error: string; reason?: string };
 
 /** Validate and normalize the wire request before session or lifecycle work begins. */
-export async function normalizeChatSendRequest(params: {
+export function normalizeChatSendRequest(params: {
   params: Record<string, unknown>;
   client: GatewayRequestHandlerOptions["client"];
   trustedSystemInput?: boolean;
   goalResume?: SessionGoalOperation & { action: "resume" };
   providerReviewAcknowledgment?: ProviderReviewAcknowledgment;
-}): Promise<NormalizeChatSendRequestResult> {
+}): NormalizeChatSendRequestResult | Promise<NormalizeChatSendRequestResult> {
   const chatSendReceivedAtMs = performance.now();
   const client = params.client;
   const clientInfo = client?.connect?.client;
@@ -205,22 +205,9 @@ export async function normalizeChatSendRequest(params: {
     return systemReceiptResult;
   }
 
-  const goalOperation =
-    params.goalResume ??
-    (p.intent
-      ? {
-          action: "start" as const,
-          operationId: p.idempotencyKey,
-          issuedAtMs: p.intent.issuedAtMs,
-          objective: p.message,
-          requestFingerprint: await fingerprintSessionGoalRequest([
-            p,
-            hasGatewayAdminScope(client),
-          ]),
-        }
-      : undefined);
+  const hasGoalOperation = params.goalResume !== undefined || p.intent !== undefined;
   const commandInterpretationSuppressed =
-    suppressCommandInterpretation || goalOperation !== undefined || providerReview !== undefined;
+    suppressCommandInterpretation || hasGoalOperation || providerReview !== undefined;
   // This text comes from the current provider review, not a browser-supplied command.
   const inboundMessage = p.intent || providerReview ? p.message : sanitizedMessageResult.message;
   const systemInputProvenance = params.goalResume
@@ -255,7 +242,7 @@ export async function normalizeChatSendRequest(params: {
   const turnKind =
     !commandInterpretationSuppressed && isBtwRequestText(inboundMessage) ? "btw" : "main";
   const normalizedAttachments = normalizeRpcAttachmentsToChatAttachments(p.attachments);
-  const rawMessage = goalOperation || providerReview ? inboundMessage : inboundMessage.trim();
+  const rawMessage = hasGoalOperation || providerReview ? inboundMessage : inboundMessage.trim();
   if (!rawMessage && normalizedAttachments.length === 0) {
     return { ok: false, error: "message or attachment required" };
   }
@@ -273,7 +260,7 @@ export async function normalizeChatSendRequest(params: {
       !client?.authenticatedUserProfile ||
       client.internal?.syntheticClient ||
       client.internal?.senderAttribution ||
-      goalOperation ||
+      hasGoalOperation ||
       systemInputProvenance ||
       systemProvenanceReceipt ||
       explicitOriginResult.value ||
@@ -291,7 +278,7 @@ export async function normalizeChatSendRequest(params: {
   }
   if (
     p.workContext &&
-    (goalOperation ||
+    (hasGoalOperation ||
       stopCommand ||
       turnKind !== "main" ||
       rawMessage.startsWith("/") ||
@@ -317,31 +304,43 @@ export async function normalizeChatSendRequest(params: {
     ]),
   );
 
-  return {
-    ok: true,
-    value: {
-      chatSendReceivedAtMs,
-      clientInfo,
-      supportsTaskSuggestions,
-      p,
-      ...(params.providerReviewAcknowledgment
-        ? { providerReviewAcknowledgment: params.providerReviewAcknowledgment }
-        : {}),
-      ...(goalOperation ? { goalOperation } : {}),
-      explicitOrigin: explicitOriginResult.value,
-      inboundMessage: workContext ? modelMessage : inboundMessage,
-      ...(workContext ? { workContext } : {}),
-      systemInputProvenance,
-      systemProvenanceReceipt,
-      suppressCommandInterpretation: commandInterpretationSuppressed,
-      toolBindings: p.toolBindings,
-      stopCommand,
-      turnKind,
-      normalizedAttachments,
-      rawMessage: modelMessage,
-      requestIdentity,
-      ...(mentions.value ? { mentions: mentions.value } : {}),
-      reconnectResumeRequested: controlUiReconnectResume.resumeRequested,
-    },
+  const value: NormalizedChatSendRequest = {
+    chatSendReceivedAtMs,
+    clientInfo,
+    supportsTaskSuggestions,
+    p,
+    ...(params.providerReviewAcknowledgment
+      ? { providerReviewAcknowledgment: params.providerReviewAcknowledgment }
+      : {}),
+    ...(params.goalResume ? { goalOperation: params.goalResume } : {}),
+    explicitOrigin: explicitOriginResult.value,
+    inboundMessage: workContext ? modelMessage : inboundMessage,
+    ...(workContext ? { workContext } : {}),
+    systemInputProvenance,
+    systemProvenanceReceipt,
+    suppressCommandInterpretation: commandInterpretationSuppressed,
+    toolBindings: p.toolBindings,
+    stopCommand,
+    turnKind,
+    normalizedAttachments,
+    rawMessage: modelMessage,
+    requestIdentity,
+    ...(mentions.value ? { mentions: mentions.value } : {}),
+    reconnectResumeRequested: controlUiReconnectResume.resumeRequested,
   };
+  if (p.intent && !params.goalResume) {
+    const goalStart = {
+      action: "start" as const,
+      operationId: p.idempotencyKey,
+      issuedAtMs: p.intent.issuedAtMs,
+      objective: p.message,
+    };
+    return fingerprintSessionGoalRequest([p, hasGatewayAdminScope(client)]).then(
+      (requestFingerprint) => ({
+        ok: true,
+        value: { ...value, goalOperation: { ...goalStart, requestFingerprint } },
+      }),
+    );
+  }
+  return { ok: true, value };
 }

@@ -92,10 +92,10 @@ describe("normalizeChatSendRequest", () => {
     ).toBe(false);
   });
 
-  it("normalizes Unicode and whitespace together with selected mention spans", async () => {
+  it("normalizes ordinary chat and selected mention spans without yielding", () => {
     const message = "  e\u0301 @Zoe\u0308 🌈  ";
     const mentions = [{ profileId: "zoe", start: 5, end: 10 }];
-    const result = await normalizeChatSendRequest({
+    const result = normalizeChatSendRequest({
       params: validParams({ message, mentions }),
       client: humanClient(),
     });
