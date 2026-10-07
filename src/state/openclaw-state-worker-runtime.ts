@@ -12,7 +12,6 @@ import {
 } from "../cron/store/dispatch.worker.js";
 import { readPendingRepositoryGitHubPublicationInDatabase } from "../gateway/github-repository-publication.kernel.js";
 import { mutateSessionGroupCatalogInDatabase } from "../gateway/session-group-catalog.kernel.js";
-import * as deviceAuth from "../infra/device-auth-store.kernel.js";
 import {
   readStableSqliteFileGeneration,
   sameSqliteFileGeneration,
@@ -74,10 +73,6 @@ export function executeSharedStateCommand(
   updateRunWriter: () => ExistingOpenClawStateWriter,
   writeTransaction: <T>(operation: (database: OpenClawStateDatabase) => T) => T,
 ): ReturnType<OpenClawStateWorkerBackend["execute"]> {
-  // Dispatch preparation has loaded this module; do not open or observe token state.
-  if (command.type === "deviceAuth.prepare") {
-    return undefined;
-  }
   const stateOptions = () => ({
     path: context.databasePath,
     env: getSqliteWorkerStateContext().environment,
@@ -125,18 +120,6 @@ export function executeSharedStateCommand(
       ...stateOptions(),
     });
   }
-  if (command.type === "deviceAuth.read" || command.type === "deviceAuth.readOrigin") {
-    const read = (db: OpenClawStateDatabase["db"]) =>
-      command.type === "deviceAuth.read"
-        ? deviceAuth.readDeviceAuthTokenObservationFromDatabase(db, command.input)
-        : deviceAuth.readOriginDeviceTokenObservationFromDatabase(db, command.input);
-    return command.input.readOnly
-      ? (withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(
-          ({ db }) => read(db),
-          stateOptions(),
-        ) ?? { entry: null, expectedToken: null })
-      : read(open().db);
-  }
   if (command.type === "tui.lastSession.clear") {
     return clearRetiredTuiPointers(new Set(command.input.retiredSessionKeys), stateOptions(), open);
   }
@@ -149,9 +132,6 @@ export function executeSharedStateCommand(
   }
   if (command.type === "githubRepository.personalPending") {
     return readPendingRepositoryGitHubPublicationInDatabase(database.db, command.input);
-  }
-  if (command.type === "deviceAuth.list") {
-    return deviceAuth.readDeviceAuthTokensFromDatabase(database.db, command.input);
   }
   switch (command.type) {
     case "transcripts.canonicalSessionRow":
@@ -241,26 +221,6 @@ export function executeSharedStateCommand(
   }
   if (command.type === "sessionGroups.mutate") {
     return mutateSessionGroupCatalogInDatabase(database, command.input, writeOptions.env);
-  }
-  if (
-    command.type === "deviceAuth.store" ||
-    command.type === "deviceAuth.storeOrigin" ||
-    command.type === "deviceAuth.clear" ||
-    command.type === "deviceAuth.clearOrigin"
-  ) {
-    return runOpenClawStateWriteTransaction(({ db }) => {
-      requestSqliteWorkerOperationAdmission({ stage: "transaction", facts: undefined });
-      const result =
-        command.type === "deviceAuth.store"
-          ? deviceAuth.storeDeviceAuthTokenInDatabase(db, command.input)
-          : command.type === "deviceAuth.storeOrigin"
-            ? deviceAuth.storeOriginDeviceTokenInDatabase(db, command.input)
-            : command.type === "deviceAuth.clear"
-              ? deviceAuth.clearDeviceAuthTokenFromDatabase(db, command.input)
-              : deviceAuth.clearOriginDeviceTokenInDatabase(db, command.input);
-      requestSqliteWorkerOperationAdmission({ stage: "commit", facts: undefined });
-      return result;
-    }, writeOptions);
   }
   if (command.type === "agentProvenance.readBatch" || command.type === "agentProvenance.list") {
     ensureAgentProvenanceSchema(writeOptions);
