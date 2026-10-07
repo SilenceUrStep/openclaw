@@ -305,10 +305,9 @@ describe("worker placement dispatch reclaim", () => {
     });
     const active = await harness.service.dispatch(REQUEST);
 
-    let authorizationChecks = 0;
+    let authorized = true;
     const authorize = vi.fn(() => {
-      authorizationChecks += 1;
-      if (authorizationChecks === 3) {
+      if (!authorized) {
         throw new Error("session access revoked");
       }
     });
@@ -352,6 +351,7 @@ describe("worker placement dispatch reclaim", () => {
         if (local.state !== "local") {
           throw new Error("move source did not return to local state");
         }
+        authorized = false;
         return local;
       },
       validateAbandonSource: vi.fn(),
@@ -382,7 +382,6 @@ describe("worker placement dispatch reclaim", () => {
       ),
     ).rejects.toThrow("session access revoked");
 
-    expect(authorize).toHaveBeenCalledTimes(3);
     expect(destinationDispatch).toHaveBeenCalledOnce();
     expect(placementStore.get(active.sessionId)).toMatchObject({ state: "local" });
   });

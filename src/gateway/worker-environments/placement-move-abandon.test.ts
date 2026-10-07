@@ -709,17 +709,14 @@ describe("offline device placement abandonment", () => {
     expect(harness.environments.destroy).not.toHaveBeenCalled();
   });
 
-  it("retains the durable decision when authorization closes after teardown", async () => {
+  it("retains the durable decision when authorization closes after forced source fencing", async () => {
     const harness = createHarness(database, placements);
     const active = await harness.service.dispatch(REQUEST);
     harness.markEnvironmentNodeDeviceId("device-1");
     seedEnvironment(active);
-    let checks = 0;
-
     await expect(
       harness.service.move(requestFor(active), undefined, () => {
-        checks += 1;
-        if (checks === 2) {
+        if (placements.get(active.sessionId)?.recoveryError === FORCED_WORKER_ABANDONMENT_ERROR) {
           throw new Error("session access revoked after teardown");
         }
       }),
