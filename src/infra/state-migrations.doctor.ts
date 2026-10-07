@@ -77,9 +77,11 @@ import {
   migrateLegacyDebugProxyCaptureSidecar,
 } from "./state-migrations.debug-proxy.js";
 import { detectLegacyDeviceAuth, migrateLegacyDeviceAuth } from "./state-migrations.device-auth.js";
-import { migrateLegacyDeviceIdentity } from "./state-migrations.device-identity.js";
 import {
-  detectDeviceIdentityStateMigration,
+  detectLegacyDeviceIdentity,
+  migrateLegacyDeviceIdentity,
+} from "./state-migrations.device-identity.js";
+import {
   detectManagedWorktreeStateMigration,
   prepareDoctorAgentDatabaseDiscovery,
   resolveConcreteBindingAccountId,
@@ -403,11 +405,10 @@ export async function detectLegacyStateMigrations(params: {
       stateSchemaMigrations.length === 0 && params.doctorOnlyStateMigrations === true,
     artifactPreservingReadOnly: params.artifactPreservingReadOnly,
   });
-  const deviceIdentity = detectDeviceIdentityStateMigration({
+  const deviceIdentity = detectLegacyDeviceIdentity({
     stateDir,
     env,
     doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
-    artifactPreservingReadOnly: params.artifactPreservingReadOnly,
   });
   const execApprovals = detectDoctorOwnedState(detectLegacyExecApprovals);
   const mcpOauth = detectDoctorOwnedState(detectLegacyMcpOAuthStores);

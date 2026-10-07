@@ -11,7 +11,6 @@ import { inspectOpenClawRegisteredAgentDatabases } from "../state/openclaw-agent
 import { withArtifactPreservingStateReads } from "../state/openclaw-state-db-readonly.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { hasErrnoCode } from "./errno.js";
-import { detectLegacyDeviceIdentity } from "./state-migrations.device-identity.js";
 import { migrationFileExists } from "./state-migrations.fs.js";
 import {
   prepareAgentDatabaseMigrationDiscovery,
@@ -43,22 +42,6 @@ export async function prepareDoctorAgentDatabaseDiscovery(
       }),
     });
   return artifactPreservingReadOnly ? withArtifactPreservingStateReads(prepare) : prepare();
-}
-
-/** Copied-state planning keeps SQLite coordination writes on a private snapshot. */
-export function detectDeviceIdentityStateMigration(params: {
-  env: NodeJS.ProcessEnv;
-  stateDir: string;
-  doctorOnlyStateMigrations?: boolean;
-  artifactPreservingReadOnly?: boolean;
-}): LegacyStateDetection["deviceIdentity"] {
-  const detect = () =>
-    detectLegacyDeviceIdentity({
-      env: params.env,
-      stateDir: params.stateDir,
-      doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
-    });
-  return params.artifactPreservingReadOnly ? withArtifactPreservingStateReads(detect) : detect();
 }
 
 export async function detectManagedWorktreeStateMigration(params: {
