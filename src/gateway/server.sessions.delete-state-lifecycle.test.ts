@@ -478,48 +478,74 @@ test.each(["authorization", "placement"] as const)(
   },
 );
 
-test("sessions.delete accepts placement retirement by the absent-session reconciler after commit", async () => {
-  await createSessionStoreDir();
-  const sessionKey = "agent:main:postcommit-retirement";
-  const sessionId = "postcommit-retirement-session";
-  await writeSessionStore({ entries: { [sessionKey]: sessionStoreEntry(sessionId) } });
-  const { placementStore } = await loadGatewayWorkerEnvironmentStartupState();
-  const claim = await placementStore.claimTurn({
-    sessionId,
-    sessionKey,
-    agentId: "main",
-    owner: { kind: "local" },
-    claimId: "postcommit-claim",
-    runId: "postcommit-run",
-  });
-  await placementStore.releaseTurn(claim);
-  let retired = false;
-  const publish = sessionArchiveStore.publishSessionStateArchives;
-  vi.spyOn(sessionArchiveStore, "publishSessionStateArchives").mockImplementation(
-    async (...args) => {
-      const result = await publish(...args);
-      if (!loadSessionEntry({ sessionKey }) && !retired) {
-        placementStore.retireSessionPlacement({
-          sessionId,
-          expectedState: "local",
-          expectedGeneration: claim.placementGeneration,
-        });
-        retired = true;
-      }
-      return result;
-    },
-  );
-  const deleted = await directSessionReq(
-    "sessions.delete",
-    { key: sessionKey },
-    {
-      context: { workerSessionPlacementService: placementStore },
-    },
-  );
-  expect(retired).toBe(true);
-  expect(deleted).toMatchObject({ ok: true, payload: { deleted: true } });
-  expect(placementStore.get(sessionId)).toBeUndefined();
-});
+test.each(["archive-publication", "worker-queue"] as const)(
+  "sessions.delete accepts postcommit placement retirement during %s",
+  async (phase) => {
+    await createSessionStoreDir();
+    const sessionKey = "agent:main:postcommit-retirement";
+    const sessionId = "postcommit-retirement-session";
+    await writeSessionStore({ entries: { [sessionKey]: sessionStoreEntry(sessionId) } });
+    const { placementStore } = await loadGatewayWorkerEnvironmentStartupState();
+    const claim = await placementStore.claimTurn({
+      sessionId,
+      sessionKey,
+      agentId: "main",
+      owner: { kind: "local" },
+      claimId: "postcommit-claim",
+      runId: "postcommit-run",
+    });
+    await placementStore.releaseTurn(claim);
+    let retired = false;
+    let placementService = placementStore;
+    const retire = placementStore.retireSessionPlacementAsync.bind(placementStore);
+    if (phase === "archive-publication") {
+      const publish = sessionArchiveStore.publishSessionStateArchives;
+      vi.spyOn(sessionArchiveStore, "publishSessionStateArchives").mockImplementation(
+        async (...args) => {
+          const result = await publish(...args);
+          if (!loadSessionEntry({ sessionKey }) && !retired) {
+            placementStore.retireSessionPlacement({
+              sessionId,
+              expectedState: "local",
+              expectedGeneration: claim.placementGeneration,
+            });
+            retired = true;
+          }
+          return result;
+        },
+      );
+    } else {
+      placementService = {
+        ...placementStore,
+        async retireSessionPlacementAsync(...args: Parameters<typeof retire>) {
+          expect(loadSessionEntry({ sessionKey })).toBeUndefined();
+          expect(placementStore.get(sessionId)).toMatchObject({
+            state: "local",
+            generation: claim.placementGeneration,
+            turnClaim: null,
+          });
+          // The orphan wins FIFO after deletion's host check, before its worker CAS.
+          await Promise.all([
+            retire(...args).then(() => {
+              retired = true;
+            }),
+            retire(...args),
+          ]);
+        },
+      };
+    }
+    const deleted = await directSessionReq(
+      "sessions.delete",
+      { key: sessionKey },
+      {
+        context: { workerSessionPlacementService: placementService },
+      },
+    );
+    expect(retired).toBe(true);
+    expect(deleted).toMatchObject({ ok: true, payload: { deleted: true } });
+    expect(placementStore.get(sessionId)).toBeUndefined();
+  },
+);
 
 async function createCompanion(runModel?: SessionCompanionAskDeps["run"]) {
   const { getRuntimeConfig } = await getGatewayConfigModule();
