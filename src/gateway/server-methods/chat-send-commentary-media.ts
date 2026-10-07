@@ -218,11 +218,17 @@ function observeChatSendCommentaryMedia(params: AssistantCommentaryMediaCustodyP
               assertCurrent,
             });
             await withChannelReadAuthority(mediaScope.assertCurrent, async () => {
-              const payloads = await normalizeWebchatReplyMediaPathsForDisplay({
-                ...mediaScope,
-                payloads: mediaUrls.map((url) => ({ mediaUrls: [url] })),
-              });
-              const localRoots = await prepareWebchatReplyMediaLocalRoots(mediaScope);
+              const payloads = await normalizeWebchatReplyMediaPathsForDisplay(
+                {
+                  ...mediaScope,
+                  payloads: mediaUrls.map((url) => ({ mediaUrls: [url] })),
+                },
+                mediaScope.workspace,
+              );
+              const localRoots = await prepareWebchatReplyMediaLocalRoots(
+                mediaScope,
+                mediaScope.workspace,
+              );
               assertCurrent();
               for (const [index, payload] of payloads.entries()) {
                 // History ownership starts after the rewrite; GC can run during preparation.

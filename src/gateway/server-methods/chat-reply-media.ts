@@ -80,30 +80,39 @@ export function captureWebchatReplyMediaScope(
     sessionKey: string;
     sessionLoadOptions?: Parameters<typeof loadSessionEntry>[1];
   },
-): WebchatReplyMediaScope & { sessionKey: string; assertCurrent: () => void } {
+): WebchatReplyMediaScope & {
+  sessionKey: string;
+  workspace: ReturnType<typeof resolveWebchatReplyWorkspace>;
+  assertCurrent: () => void;
+} {
   const readEntry = () => loadSessionEntry(params.sessionKey, params.sessionLoadOptions).entry;
   const sessionEntry = readEntry();
   const scope = { ...params, sessionEntry: sessionEntry ? { ...sessionEntry } : undefined };
   const authority = (entry: SessionEntry | undefined) => {
     const currentScope = { ...scope, sessionEntry: entry };
     const workspace = resolveWebchatReplyWorkspace(currentScope);
-    return JSON.stringify([
-      entry?.sessionId,
-      entry?.lifecycleRevision,
-      entry?.permissionMode,
-      entry?.execNode,
-      entry?.repositoryWorkspaceId,
-      workspace.remote,
-      workspace.workspaceDir,
-      resolveWebchatReplyWorkspaceOnly(currentScope),
-    ]);
+    return {
+      workspace,
+      key: JSON.stringify([
+        entry?.sessionId,
+        entry?.lifecycleRevision,
+        entry?.permissionMode,
+        entry?.execNode,
+        entry?.repositoryWorkspaceId,
+        workspace.remote,
+        workspace.workspaceDir,
+        resolveWebchatReplyWorkspaceOnly(currentScope),
+      ]),
+    };
   };
   const expected = authority(scope.sessionEntry);
   return {
     ...scope,
+    // The custody fence already read this workspace; preparation consumes that same snapshot.
+    workspace: expected.workspace,
     assertCurrent: () => {
       params.assertCurrent?.();
-      if (authority(readEntry()) !== expected) {
+      if (authority(readEntry()).key !== expected.key) {
         throw new Error("Session media access changed before attachment delivery.");
       }
     },
@@ -144,7 +153,7 @@ export async function withPreparedWebchatReplyMedia<T>(
   return await withChannelReadAuthority(
     scope.assertCurrent,
     async () => {
-      const workspace = await prepareWebchatReplyWorkspace(scope);
+      const workspace = scope.workspace;
       const payloads = await normalizeWebchatReplyMediaPathsForDisplay(
         { ...scope, payloads: sourcePayloads },
         workspace,
@@ -153,10 +162,9 @@ export async function withPreparedWebchatReplyMedia<T>(
         const payload = payloads[index];
         return payload ? replaceChatSendReplyPayload(input, payload) : [];
       });
-      const localRoots = getWebchatReplyMediaLocalRoots(
-        { ...scope, storePath: params.storePath },
-        workspace,
-      );
+      const localRoots = hasMedia
+        ? getWebchatReplyMediaLocalRoots({ ...scope, storePath: params.storePath }, workspace)
+        : [];
       return prepare({
         payloads,
         inputsByIndex,
@@ -245,8 +253,12 @@ async function prepareWebchatReplyWorkspace(params: WebchatReplyMediaScope) {
 
 export async function prepareWebchatReplyMediaLocalRoots(
   params: WebchatReplyMediaScope & { storePath?: string },
+  preparedWorkspace?: ReturnType<typeof resolveWebchatReplyWorkspace>,
 ) {
-  return getWebchatReplyMediaLocalRoots(params, await prepareWebchatReplyWorkspace(params));
+  return getWebchatReplyMediaLocalRoots(
+    params,
+    preparedWorkspace ?? (await prepareWebchatReplyWorkspace(params)),
+  );
 }
 
 function resolveWebchatReplyWorkspaceOnly(params: WebchatReplyMediaScope): boolean {
