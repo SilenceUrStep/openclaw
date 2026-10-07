@@ -4,6 +4,7 @@ import { runOpenClawStateWriteTransaction } from "../../state/openclaw-state-db.
 import type {
   WorkerOperationHandlers,
   WorkerOperations,
+  WorkerWriteOperationContext,
 } from "../../state/worker-operation-registry.js";
 import { requestSqliteWorkerOperationAdmission } from "../sqlite-worker-operation-admission.js";
 import {
@@ -65,8 +66,8 @@ function touchCurrentConversationBindingInDatabase(
 }
 
 export const conversationBindingOperations = {
-  "conversationBindings.bind": (input: CurrentConversationBindingBind, { writeTransaction }) => {
-    return writeTransaction(({ db }) => {
+  "conversationBindings.bind": (input: CurrentConversationBindingBind, { write }) => {
+    return write(({ db }) => {
       const record = bindCurrentConversationInDatabase(db, input, (requiresAgentId) =>
         requestSqliteWorkerOperationAdmission({ stage: "transaction", facts: requiresAgentId }),
       );
@@ -74,11 +75,8 @@ export const conversationBindingOperations = {
       return record;
     });
   },
-  "conversationBindings.remove": (
-    input: CurrentConversationBindingRemove,
-    { writeTransaction },
-  ) => {
-    return writeTransaction(({ db }) => {
+  "conversationBindings.remove": (input: CurrentConversationBindingRemove, { write }) => {
+    return write(({ db }) => {
       requestSqliteWorkerOperationAdmission({ stage: "transaction", facts: undefined });
       const records = removeCurrentConversationBindingsInDatabase(db, input);
       requestSqliteWorkerOperationAdmission({ stage: "commit", facts: undefined });
@@ -153,7 +151,7 @@ export const conversationBindingOperations = {
       },
       { database: open(), ...stateOptions() },
     ),
-} satisfies WorkerOperationHandlers;
+} satisfies WorkerOperationHandlers<WorkerWriteOperationContext>;
 
 export type CurrentConversationBindingWorkerOperations = WorkerOperations<
   typeof conversationBindingOperations

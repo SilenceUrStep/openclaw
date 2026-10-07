@@ -11,7 +11,7 @@ import {
   runOpenClawStateWriteTransaction,
 } from "../../state/openclaw-state-db.js";
 import { stateWorkerRegistry } from "../../state/openclaw-state-worker-registry.js";
-import type { WorkerOperationContext } from "../../state/worker-operation-registry.js";
+import type { WorkerWriteOperationContext } from "../../state/worker-operation-registry.js";
 import { captureDeliveryQueueStateContext } from "../delivery-queue-sqlite.js";
 import type { SqliteWorkerRequest } from "../sqlite-worker-contract.js";
 import { ackDelivery } from "./delivery-queue-ack.js";
@@ -80,10 +80,10 @@ describe("outbound producer claim worker", () => {
       vi.setSystemTime(1_000);
       const env = { ...process.env, OPENCLAW_STATE_DIR: fixtures.tmpDir() };
       const database = openOpenClawStateDatabase({ env });
-      const context: WorkerOperationContext = {
+      const context: WorkerWriteOperationContext = {
         open: () => database,
-        writeTransaction: (operation) =>
-          runOpenClawStateWriteTransaction(operation, { database, env }),
+        write: (operation, options) =>
+          runOpenClawStateWriteTransaction(operation, { database, env }, options),
         stateOptions: () => ({ path: database.path, env }),
       };
       stateWorkerRegistry.execute(

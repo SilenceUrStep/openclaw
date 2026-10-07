@@ -112,13 +112,7 @@ async function createCompletionFixture(state: OpenClawTestState) {
     // Observe records at publication, before a wrongly late write could make the test pass.
     const entries = managedImageRecordOperations["managedImages.entries"](
       { sessionKey },
-      {
-        open: () => database,
-        writeTransaction: () => {
-          throw new Error("The publication observer must not write to the database");
-        },
-        stateOptions: () => ({ path: database.path, env: state.env }),
-      },
+      { open: () => database, stateOptions: () => ({ path: database.path, env: state.env }) },
     );
     for (const { record } of entries) {
       const pending = resolveManagedOutgoingMediaArtifactDownload({

@@ -462,8 +462,8 @@ it.each(["replaced", "removed", "expired", "malformed"] as const)(
             },
             {
               open: () => database,
-              writeTransaction: (operation) =>
-                runOpenClawStateWriteTransaction(operation, { database, env }),
+              write: (operation, options) =>
+                runOpenClawStateWriteTransaction(operation, { database, env }, options),
               stateOptions: () => {
                 // This existing context callback runs after prefetch and before BEGIN.
                 expect(database.db.isTransaction).toBe(false);

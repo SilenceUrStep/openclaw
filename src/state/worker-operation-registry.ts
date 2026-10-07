@@ -1,3 +1,4 @@
+import type { SqliteTransactionOptions } from "../infra/sqlite-transaction.js";
 import type {
   SqliteWorkerCommand,
   SqliteWorkerOperations,
@@ -7,8 +8,17 @@ import type { OpenClawStateDatabase } from "./openclaw-state-db-contract.js";
 
 export type WorkerOperationContext = {
   open: () => OpenClawStateDatabase;
-  writeTransaction: <T>(operation: (database: OpenClawStateDatabase) => T) => T;
   stateOptions: () => { path: string; env: NodeJS.ProcessEnv };
+};
+
+export type WorkerWriteOperationContext = WorkerOperationContext & {
+  write: <T>(
+    operation: (database: OpenClawStateDatabase) => T,
+    transactionOptions?: Pick<
+      SqliteTransactionOptions,
+      "busyTimeoutMs" | "operationLabel" | "slowTransactionHoldMs"
+    >,
+  ) => T;
 };
 
 export type WorkerOperationHandlers<Context = WorkerOperationContext> = Record<
