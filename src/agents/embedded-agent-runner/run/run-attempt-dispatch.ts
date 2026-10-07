@@ -676,6 +676,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
       placement?.assertCurrent();
       return runEmbeddedAttemptWithBackend(attemptParams, nativeSessionRuntime, params.media);
     },
+    resolvedSessionTarget,
   )
     .catch((err: unknown): never => {
       throw input.getPostCompactionAbortError() ?? err;

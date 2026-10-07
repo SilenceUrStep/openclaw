@@ -3189,6 +3189,7 @@ export const en: TranslationMap & {
       cloudPublicationGuidance:
         "Start a live agent turn and ask it to publish this cloud workspace after reconciliation.",
       dismiss: "Dismiss pull request #{number}",
+      dismissBranch: "Hide {branch} for this session",
       open: "Open",
       draft: "Draft",
       merged: "Merged",
