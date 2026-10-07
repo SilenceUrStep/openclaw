@@ -171,49 +171,51 @@ export function readUserProfileSnapshotSync(
 }
 
 /** Resolve current authority and display together on the caller's admitted connection. */
-export function readUserProfileAuthorityInDatabase(
+export function readUserProfileAuthorityCommand(
   db: DatabaseSync,
-  profileId: string,
-  includeProfile = false,
-): (UserProfileAuthority & { listItem?: UserProfileListItem }) | undefined {
-  return runSqliteDeferredTransactionSync(db, () => {
-    const current = tableExists(db, "user_profiles")
-      ? selectResolvedUserProfileMetadataById(db, profileId)
-      : undefined;
-    if (!current) {
-      return undefined;
-    }
-    const display = selectProfileDisplayEntries(db, [current.id])[0]?.[1];
-    if (!display) {
-      return undefined;
-    }
-    const githubIdentity = selectUserProfileGitHubIdentities(db, [current.id]).get(current.id);
-    const aliases = executeSqliteQuerySync(
-      db,
-      userProfilesDb(db)
-        .selectFrom("user_profiles")
-        .select("id")
-        .where("merged_into", "=", current.id)
-        .orderBy("id", "asc"),
-    ).rows;
-    return {
-      profileId: current.id,
-      role: current.role ?? null,
-      githubLogin: githubIdentity?.login ?? null,
-      aliases: [current.id, ...aliases.map((alias) => alias.id)],
-      display: projectUserProfileDisplay(display),
-      ...(includeProfile
-        ? {
-            listItem: {
-              ...toUserProfile(current),
-              emails: selectUserProfileEmails(db, current.id),
-              githubIdentity: githubIdentity ?? null,
-              hasAvatar: display.has_avatar === 1,
-            },
-          }
-        : {}),
-    };
-  });
+  command: Extract<OpenClawStateReadCommand, { type: "userProfiles.authority.resolve" }>,
+) {
+  const { profileId, includeProfile = false } = command;
+  const profile: (UserProfileAuthority & { listItem?: UserProfileListItem }) | undefined =
+    runSqliteDeferredTransactionSync(db, () => {
+      const current = tableExists(db, "user_profiles")
+        ? selectResolvedUserProfileMetadataById(db, profileId)
+        : undefined;
+      if (!current) {
+        return undefined;
+      }
+      const display = selectProfileDisplayEntries(db, [current.id])[0]?.[1];
+      if (!display) {
+        return undefined;
+      }
+      const githubIdentity = selectUserProfileGitHubIdentities(db, [current.id]).get(current.id);
+      const aliases = executeSqliteQuerySync(
+        db,
+        userProfilesDb(db)
+          .selectFrom("user_profiles")
+          .select("id")
+          .where("merged_into", "=", current.id)
+          .orderBy("id", "asc"),
+      ).rows;
+      return {
+        profileId: current.id,
+        role: current.role ?? null,
+        githubLogin: githubIdentity?.login ?? null,
+        aliases: [current.id, ...aliases.map((alias) => alias.id)],
+        display: projectUserProfileDisplay(display),
+        ...(includeProfile
+          ? {
+              listItem: {
+                ...toUserProfile(current),
+                emails: selectUserProfileEmails(db, current.id),
+                githubIdentity: githubIdentity ?? null,
+                hasAvatar: display.has_avatar === 1,
+              },
+            }
+          : {}),
+      };
+    });
+  return { type: command.type, profile };
 }
 
 /** Disclosure scopes need current aliases, never the resident display catalog. */

@@ -48,6 +48,10 @@ import type {
 import type { CronQuarantinedJob } from "../cron/types-shared.js";
 import type { FleetCellRecord } from "../fleet/registry.types.js";
 import type {
+  PlacementGrantReadInput,
+  PlacementGrantRows,
+} from "../gateway/operator-approval-placement-grants.read.js";
+import type {
   CronStandingGrantListing,
   CronStandingGrantLookupInput,
   ConsumeCronStandingGrantResult,
@@ -193,6 +197,7 @@ export type OpenClawStateReadCommand =
     }
   | { type: "operatorApprovals.listCronGrants"; input: { limit?: number } }
   | { type: "operatorApprovals.validateCronGrant"; input: CronStandingGrantLookupInput }
+  | { type: "operatorApprovals.placementGrant"; input: PlacementGrantReadInput }
   | PluginBlobReadCommand
   | { type: "subagents.sessionList" }
   | { type: "subagents.restore" }
@@ -260,6 +265,7 @@ export type OpenClawStateReadCommand =
   | { type: "updateRuns.status" }
   | { type: "updateRuns.historyStatus" }
   | { type: "worktrees.cleanupState" }
+  | { type: "worktrees.list" }
   | { type: "fleet.list" }
   | { type: "workerPlacements.changeSnapshot"; profileIds?: string[] }
   | { type: "fleet.get"; tenantId: string }
@@ -355,6 +361,7 @@ export type OpenClawStateReadResult =
     }
   | { type: "operatorApprovals.listCronGrants"; grants: CronStandingGrantListing[] }
   | { type: "operatorApprovals.validateCronGrant"; result: ConsumeCronStandingGrantResult }
+  | { type: "operatorApprovals.placementGrant"; rows: PlacementGrantRows }
   | ReadResult<PluginBlobReadReply>
   | {
       type: "capture.readOnlyEvents";
@@ -533,6 +540,7 @@ export type OpenClawStateReadResult =
       records: ManagedWorktreeRecord[];
       leases: ReturnType<typeof readWorktreeRunLeaseStateInDatabase>;
     }
+  | { type: "worktrees.list"; records: ManagedWorktreeRecord[] }
   | { type: "fleet.list"; cells: FleetCellRecord[] }
   | {
       type: "workerPlacements.changeSnapshot";

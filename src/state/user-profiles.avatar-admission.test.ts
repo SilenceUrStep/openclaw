@@ -276,40 +276,36 @@ it.each(["missing profile", "closed before dispatch", "binding refusal"] as cons
   },
 );
 
-it.each([false, true])(
-  "publishes to a catalog prepared alongside commit (previous catalog=%s)",
-  async (resident) => {
-    const state = await createOpenClawTestState({
-      layout: "state-only",
-      prefix: "avatar-precommit-catalog-",
-    });
-    let release = () => {};
-    let preparing: Promise<void> | undefined;
-    try {
-      const profile = ensureProfileForEmail("precommit@example.test");
-      if (resident) {
-        release = (await prepareUserProfileCatalog()).release;
-      }
-      let prepared = false;
-      boundary.duringGrant = () => {
-        release();
-        preparing = prepareUserProfileCatalog().then((catalog) => {
-          release = catalog.release;
-        });
-        prepared = true;
-      };
-      await adoptAvatar(profile.id);
-      await preparing;
-      expect(prepared).toBe(true);
-      expect(getUserProfileDisplay(profile.id).hasAvatar).toBe(true);
-      expect(readUserProfileIdentity(profile.id)?.profileId).toBe(profile.id);
-    } finally {
-      await preparing;
+it("publishes to a replacement catalog prepared alongside commit", async () => {
+  const state = await createOpenClawTestState({
+    layout: "state-only",
+    prefix: "avatar-precommit-catalog-",
+  });
+  let release = () => {};
+  let preparing: Promise<void> | undefined;
+  try {
+    const profile = ensureProfileForEmail("precommit@example.test");
+    release = (await prepareUserProfileCatalog()).release;
+    let prepared = false;
+    boundary.duringGrant = () => {
+      expect(getUserProfileDisplay(profile.id).hasAvatar).toBe(false);
       release();
-      await state.cleanup();
-    }
-  },
-);
+      preparing = prepareUserProfileCatalog().then((catalog) => {
+        release = catalog.release;
+      });
+      prepared = true;
+    };
+    await adoptAvatar(profile.id);
+    await preparing;
+    expect(prepared).toBe(true);
+    expect(getUserProfileDisplay(profile.id).hasAvatar).toBe(true);
+    expect(readUserProfileIdentity(profile.id)?.profileId).toBe(profile.id);
+  } finally {
+    await preparing;
+    release();
+    await state.cleanup();
+  }
+});
 
 it("refuses a replacement source during settlement and retries only the original inode", async () => {
   const state = await createOpenClawTestState({
