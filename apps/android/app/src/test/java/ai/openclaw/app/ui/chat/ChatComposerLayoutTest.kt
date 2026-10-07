@@ -5325,7 +5325,7 @@ class ChatComposerLayoutTest {
     showChat()
     showProgressCard(listOf("Inspect the Android layout", "Implement the attached panel", "Verify the result"))
 
-    val card = composeRule.onNodeWithTag("chat-progress-card")
+    val card = composeRule.onNodeWithTag("chat-progress-card", useUnmergedTree = true)
     val composer = composeRule.onNodeWithTag("chat-composer-surface")
     val editor = composerEditor()
     val collapsedCard = card.getUnclippedBoundsInRoot()
