@@ -729,7 +729,7 @@ describe("worker turn launcher terminal results", () => {
         launchRequest.onDispatchReady?.();
         // A prior Move can fail its admission drain before terminal ACK. Its exact retry
         // joins the durable intent, while the admitted worker retains its original claim.
-        placements.beginPlacementMove(request);
+        await placements.beginPlacementMove(request);
         const completed = await openSessionManager();
         const leafId = await completed.appendMessageAsync(completedWorkerMessage());
         return acknowledgeCompletedWorkerTurn(launchRequest.turnClaim, leafId);
