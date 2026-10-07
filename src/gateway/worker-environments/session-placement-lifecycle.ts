@@ -1,5 +1,7 @@
 import { parseCronRunScopeSuffix } from "../../sessions/session-key-utils.js";
 import { DEVICE_WORKER_PROVIDER_ID } from "./device-provider-identity.js";
+import { isCurrentActiveWorkerEnvironment } from "./placement-dispatch-failure.js";
+import type { WorkerPlacementDispatchService } from "./placement-dispatch.js";
 import type { WorkerEnvironmentPlacementFacts } from "./placement-read-projection.types.js";
 import type { WorkerSessionPlacementRecord } from "./placement-record.js";
 import type {
@@ -12,10 +14,13 @@ import {
   type WorkerPlacementCancellationTarget,
 } from "./placement-target.js";
 import type {
+  WorkerPlacementDispatchRequest,
   WorkerEnvironmentServiceContract,
   WorkerPlacementDispatchContract,
   WorkerPlacementReclaimSourceCheck,
 } from "./service-contract.js";
+import type { WorkerEnvironmentService } from "./service.js";
+import type { createWorkerPlacementRedispatch } from "./worker-placement-redispatch.js";
 
 export type SessionWorkerPlacementContext = {
   workerEnvironmentService?: Pick<WorkerEnvironmentServiceContract, "get">;
@@ -340,4 +345,156 @@ export function prepareSessionWorkerPlacementStop(params: {
       expected?.state === "syncing" ||
       expected?.state === "starting",
   };
+}
+
+/** Initial placement, readiness, and recovery consume the same recorded destination. */
+export async function ensureWorkerSessionPlacement(params: {
+  request: WorkerPlacementDispatchRequest;
+  placements: Pick<WorkerSessionPlacementStore, "get">;
+  environments: Pick<WorkerEnvironmentService, "get">;
+  dispatch: WorkerPlacementDispatchService["dispatch"];
+  startDispatch: (
+    ...args: Parameters<WorkerPlacementDispatchService["dispatch"]>
+  ) => Promise<WorkerSessionPlacementRecord>;
+  waitForInitialPlacement: (
+    placement: WorkerSessionPlacementRecord,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
+  redispatchPlacement: ReturnType<typeof createWorkerPlacementRedispatch>;
+  prepareWorkspace: (canPrepare: () => boolean) => Promise<void>;
+  assertCurrent: () => void;
+  authorizeDispatch: () => void;
+  onTransition?: Parameters<WorkerPlacementDispatchService["dispatch"]>[1];
+  signal?: AbortSignal;
+  waitForReady?: boolean;
+}): Promise<() => void> {
+  const { request } = params;
+  const read = () => {
+    params.signal?.throwIfAborted();
+    params.assertCurrent();
+    const placement = params.placements.get(request.sessionId);
+    if (!placement || placement.state === "local") {
+      return placement;
+    }
+    if (
+      placement.agentId !== request.agentId ||
+      placement.sessionKey !== request.sessionKey ||
+      placement.executionMode !== request.executionMode
+    ) {
+      throw new Error(
+        "The existing placement conflicts with worker execution; repair its recorded owner before retrying.",
+      );
+    }
+    const environment = placement.environmentId
+      ? params.environments.get(placement.environmentId)
+      : undefined;
+    if (!environment && placement.state === "failed" && placement.environmentId) {
+      throw new Error(
+        "The session's recorded worker profile is unavailable; repair its environment record before retrying. Its workspace will not be moved automatically.",
+      );
+    }
+    if (environment && environment.profileId !== request.profileId) {
+      throw new Error(
+        "The session is bound to another worker profile; its workspace will not be moved automatically.",
+      );
+    }
+    return placement;
+  };
+  const assertReady = () => {
+    const placement = read();
+    const environment = placement?.environmentId
+      ? params.environments.get(placement.environmentId)
+      : undefined;
+    if (
+      placement?.state !== "active" ||
+      !isCurrentActiveWorkerEnvironment(placement, environment)
+    ) {
+      throw new Error(
+        "Worker placement is not ready; inspect its setup error or Stop the failed worker before retrying.",
+      );
+    }
+  };
+  const useRecorded = async () => {
+    const placement = read();
+    if (
+      !placement ||
+      placement.state === "local" ||
+      (placement.state === "failed" &&
+        placement.activeOwnerEpoch === null &&
+        isFailedWorkerPlacementEnvironmentGone({
+          placement,
+          environmentService: params.environments,
+        }))
+    ) {
+      return false;
+    }
+    if (
+      placement.state === "reclaimed" ||
+      (placement.state === "failed" && placement.activeOwnerEpoch !== null)
+    ) {
+      await params.redispatchPlacement(placement, {
+        assertCurrent: params.assertCurrent,
+        signal: params.signal,
+      });
+      assertReady();
+    } else if (params.waitForReady !== false) {
+      if (["requested", "provisioning", "syncing", "starting"].includes(placement.state)) {
+        await params.waitForInitialPlacement(placement, params.signal);
+      }
+      assertReady();
+    }
+    return true;
+  };
+  const assertDestinationCurrent = () => {
+    read();
+  };
+  if (await useRecorded()) {
+    return assertDestinationCurrent;
+  }
+  await params.prepareWorkspace(() => {
+    const placement = read();
+    if (placement?.turnClaim) {
+      throw new Error("A local turn is still active; stop it before worker setup.");
+    }
+    return (
+      !placement ||
+      placement.state === "local" ||
+      (placement.state === "failed" &&
+        placement.activeOwnerEpoch === null &&
+        isFailedWorkerPlacementEnvironmentGone({
+          placement,
+          environmentService: params.environments,
+        }))
+    );
+  });
+  if (await useRecorded()) {
+    return assertDestinationCurrent;
+  }
+  const placement = read();
+  const previousEnvironment =
+    placement?.state === "failed" && placement.environmentId
+      ? params.environments.get(placement.environmentId)
+      : undefined;
+  const dispatch = params.waitForReady === false ? params.startDispatch : params.dispatch;
+  await dispatch(
+    {
+      ...request,
+      ...(previousEnvironment
+        ? {
+            inheritedProfile: {
+              providerId: previousEnvironment.providerId,
+              profileSnapshot: previousEnvironment.profileSnapshot,
+            },
+          }
+        : {}),
+    },
+    params.onTransition,
+    params.authorizeDispatch,
+    params.signal,
+  );
+  read();
+  if (params.waitForReady !== false) {
+    assertReady();
+  }
+  return assertDestinationCurrent;
 }
