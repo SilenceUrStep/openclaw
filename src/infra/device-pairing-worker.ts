@@ -140,7 +140,7 @@ export function executeDevicePairingMutation<Key extends keyof DevicePairingWork
     baseDir?: string;
     context?: OpenClawStateWorkerContext;
     assertCurrent?: () => void;
-    admit?: (facts: DevicePairingAdmissionFacts) => void;
+    admit?: (facts: Exclude<DevicePairingAdmissionFacts, { kind: "pairing-publication" }>) => void;
     onTokensReplaced?: (deviceId: string, roles: readonly string[]) => void;
     /** Map a refused operation only after its admission and publication have settled. */
     onAuthorityRefused?: () => DevicePairingWorkerOperations[Key]["output"];
@@ -220,8 +220,11 @@ export function executeDevicePairingMutation<Key extends keyof DevicePairingWork
               context.admission.assertCurrent();
               options.assertCurrent?.();
               const facts = admissionFacts(request.facts);
+              // Publication receipts belong to this broker, not domain policy callbacks.
               for (const fact of facts) {
-                options.admit?.(fact);
+                if (fact.kind !== "pairing-publication") {
+                  options.admit?.(fact);
+                }
               }
               if (request.stage === "commit" && mutation) {
                 const publicationFact = facts.find((fact) => fact.kind === "pairing-publication");
