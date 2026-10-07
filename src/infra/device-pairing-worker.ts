@@ -65,6 +65,12 @@ function commitReceipt(value: unknown): DevicePairingCommitReceipt {
       (entry) =>
         isRecord(entry) &&
         typeof entry.deviceId === "string" &&
+        (entry.operatorBinding === undefined ||
+          entry.operatorBinding === null ||
+          (isRecord(entry.operatorBinding) &&
+            typeof entry.operatorBinding.identity === "string" &&
+            Array.isArray(entry.operatorBinding.scopes) &&
+            entry.operatorBinding.scopes.every((scope) => typeof scope === "string"))) &&
         (entry.binding === null ||
           (isRecord(entry.binding) &&
             typeof entry.binding.identity === "string" &&
@@ -112,6 +118,9 @@ function commitReceipt(value: unknown): DevicePairingCommitReceipt {
     ...(workerEnvironment ? { workerEnvironment } : {}),
     changed: value.changed.map((entry) => ({
       deviceId: entry.deviceId,
+      operatorBinding: entry.operatorBinding
+        ? { identity: entry.operatorBinding.identity, scopes: [...entry.operatorBinding.scopes] }
+        : null,
       binding:
         entry.binding === null
           ? null
@@ -177,10 +186,10 @@ export function executeDevicePairingMutation<Key extends keyof DevicePairingWork
             updatedAtMs: environment.updatedAtMs,
           });
         }
-        mutation.publish(receipt);
-        invalidatePairedCardRendererCache();
         // A callback can throw or read publication recursively; the commit is already installed.
         published = true;
+        mutation.publish(receipt);
+        invalidatePairedCardRendererCache();
         if (environmentPublished) {
           sessionChanges.emit({ all: true, scope: "worker-environments" });
         }

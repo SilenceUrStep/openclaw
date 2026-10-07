@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { expectDefined } from "@openclaw/normalization-core";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { awaitGateBeforeSettlement } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
@@ -10,6 +11,7 @@ import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import * as stateWorker from "../state/openclaw-state-worker-store.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { issueDeviceBootstrapToken } from "./device-bootstrap.js";
+import { resolvePairedDeviceTokenIdentity } from "./device-pairing-identity.js";
 import { withDevicePairingLock } from "./device-pairing-lock.js";
 import { updatePairedNodeBins, updatePairedNodeSessionHost } from "./device-pairing-node-facts.js";
 import {
@@ -17,7 +19,10 @@ import {
   isNodePairingGenerationCurrent,
 } from "./device-pairing-node-state.js";
 import { recordPairedNodeHostStats, renamePairedNode } from "./device-pairing-node.js";
-import { getPublishedPairedDeviceBinding } from "./device-pairing-publication.js";
+import {
+  getPublishedPairedDeviceBinding,
+  capturePublishedOperatorDeviceSource,
+} from "./device-pairing-publication.js";
 import { readDevicePairingNodeSnapshot } from "./device-pairing-store-readonly.js";
 import { persistDevicePairingStoreState } from "./device-pairing-store.js";
 import { revokeDeviceToken } from "./device-pairing-tokens.js";
@@ -99,7 +104,39 @@ test.each([
   "token revocation",
   "metadata after a failed read",
 ] as const)("retains only usable node authority during %s", async (change) => {
+  if (change === "host stats") {
+    const device = expectDefined(await getPairedDevice("node", baseDir), "paired node");
+    device.roles = ["node", "operator"];
+    device.approvedScopes = ["operator.admin"];
+    expectDefined(device.tokens, "paired token roles").operator = {
+      token: "synthetic-operator-token",
+      role: "operator",
+      scopes: ["operator.admin"],
+      createdAtMs: 1,
+    };
+    persistDevicePairingStoreState(
+      { pendingById: {}, pairedByDeviceId: { node: device } },
+      baseDir,
+      "paired",
+    );
+  }
   const snapshot = await readDevicePairingNodeSnapshot(baseDir);
+  const operatorRevoked = vi.fn();
+  const operatorSource =
+    change === "host stats"
+      ? capturePublishedOperatorDeviceSource(
+          expectDefined(
+            resolvePairedDeviceTokenIdentity(
+              expectDefined(snapshot.paired[0], "paired node"),
+              "operator",
+            ),
+            "operator identity",
+          ),
+          ["operator.read"],
+          operatorRevoked,
+          baseDir,
+        )
+      : undefined;
   const generation = await withEnvAsync({ OPENCLAW_STATE_DIR: baseDir }, () =>
     captureNodePairingGeneration("node"),
   );
@@ -174,6 +211,9 @@ test.each([
       );
     } else {
       expect(getPublishedPairedDeviceBinding("node", baseDir)).toEqual(binding);
+      if (operatorSource) {
+        expect(operatorSource.assertCurrent).not.toThrow();
+      }
     }
     releaseMutation.resolve();
     expect(await mutation).toEqual(
@@ -186,6 +226,9 @@ test.each([
     expect(getPublishedPairedDeviceBinding("node", baseDir)).toEqual(
       change === "token revocation" ? null : binding,
     );
+    if (operatorSource) {
+      expect(operatorRevoked).not.toHaveBeenCalled();
+    }
     const updated = await readDevicePairingNodeSnapshot(baseDir);
     expect(updated).not.toBe(snapshot);
     expect(await readDevicePairingNodeSnapshot(baseDir)).toBe(updated);
@@ -215,6 +258,7 @@ test.each([
     releaseMutation.resolve();
     await Promise.allSettled([mutation]);
     writer.mockRestore();
+    operatorSource?.release();
   }
 });
 

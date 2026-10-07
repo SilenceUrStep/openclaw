@@ -17,7 +17,9 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   bindGatewayContextResolver,
   clearGatewayContextResolver,
+  withPluginRuntimeGatewayRequestScope,
 } from "../../plugins/runtime/gateway-request-scope.js";
+import { ensureProfileForEmail } from "../../state/user-profiles.js";
 import {
   captureGatewayDeviceRevocation,
   invalidateGatewayDeviceRevocation,
@@ -27,9 +29,13 @@ import {
   revokeMcpLoopbackClientGrant,
 } from "../mcp-grant-store.js";
 import { closeMcpLoopbackServer, ensureMcpLoopbackServer } from "../mcp-http.js";
+import { createOperatorRecoveryFixture } from "../operator-run-recovery.test-support.js";
 import { hasGatewayAdminScope } from "../operator-scopes.js";
 import { createSyntheticPluginRuntimeClient } from "../server-plugin-runtime-client.js";
-import { resolveGatewayChatCronCreatorAuthorityAdmission } from "./cron-creator-authority-admission.js";
+import {
+  resolveGatewayChatCronCreatorAuthorityAdmission,
+  resolveGatewayCronCreatorAuthorityAdmission,
+} from "./cron-creator-authority-admission.js";
 import {
   SESSION,
   CREATOR,
@@ -51,6 +57,97 @@ vi.mock("../../agents/node-exec-availability.js", () => ({
 installRequesterCronAuthorityTestHooks();
 
 describe("original caller through Cron creator transports", () => {
+  it.each(["fresh operator", "recovered operator", "legacy System"] as const)(
+    "retains the %s scope boundary through real automation creation",
+    async (source) => {
+      const config: OpenClawConfig = { ...cfg, tools: { allow: [AUTOMATIONS_TOOL_NAME] } };
+      setRuntimeConfigSnapshot(config);
+      const fixture = createCronFixture(undefined, config);
+      const profile = ensureProfileForEmail("automation-recovery@example.test");
+      const recovery = await createOperatorRecoveryFixture({
+        stateDir,
+        context: fixture.context,
+        profileId: profile.id,
+        config,
+        sessionKey: SESSION,
+        sessionId: "requester-session",
+      });
+      const restored = source === "recovered operator" ? await recovery.restore() : undefined;
+      const client =
+        source === "fresh operator"
+          ? recovery.client
+          : createSyntheticPluginRuntimeClient({
+              operatorRoleActor: restored
+                ? { kind: "operator", profileId: restored.authority.profileId }
+                : { kind: "system" },
+              operatorRunAuthority: restored?.authority,
+              scopes: restored ? [...restored.authority.scopes] : ["operator.write"],
+            });
+      const runId =
+        source === "recovered operator" ? recovery.target.recoveryRunId : "automation-recovery";
+      const creator = resolveGatewayCronCreatorAuthorityAdmission({
+        runId,
+        resolvedSessionKey: SESSION,
+        sessionId: recovery.target.sessionId,
+        client,
+        request: { message: "Create a checkback", idempotencyKey: runId },
+        hasRestoredCronContinuation: false,
+        isOneShotModelRun: false,
+        isRestartRecoveryResumeRun: source !== "fresh operator",
+      });
+      if (source === "legacy System") {
+        expect(creator).toBeUndefined();
+      } else {
+        expect(creator?.managementEntitlement?.source).toBe("control-ui-admin");
+      }
+      try {
+        await withPluginRuntimeGatewayRequestScope(
+          { client, context: fixture.context, isWebchatConnect: () => false },
+          () =>
+            inRun(
+              runId,
+              creator,
+              async (_identity, admitted) => {
+                bindGatewayContextResolver(admitted, () => fixture.context);
+                try {
+                  const tools = await createCreatorTransportTools({
+                    transport: "embedded",
+                    config,
+                    admitted,
+                    senderIsOwner: true,
+                  });
+                  const created = tools.invoke(AUTOMATIONS_TOOL_NAME, {
+                    action: "add",
+                    job: {
+                      name: "Recovered caller job",
+                      enabled: false,
+                      schedule: { kind: "every", everyMs: 60_000 },
+                      sessionTarget: "current",
+                      payload: { kind: "agentTurn", message: "Check status" },
+                      delivery: { mode: "none" },
+                    },
+                  });
+                  if (source === "legacy System") {
+                    await expect(created).rejects.toThrow("missing scope: operator.admin");
+                    expect(await fixture.read()).toEqual([]);
+                  } else {
+                    await created;
+                    expect(await fixture.read()).toMatchObject([
+                      { name: "Recovered caller job", enabled: false },
+                    ]);
+                  }
+                } finally {
+                  clearGatewayContextResolver(admitted);
+                }
+              },
+              restored?.authority,
+            ),
+        );
+      } finally {
+        restored?.release();
+      }
+    },
+  );
   it("preserves ordinary restricted caller creation without management admission", async () => {
     const config: OpenClawConfig = { ...cfg, tools: { allow: [AUTOMATIONS_TOOL_NAME] } };
     setRuntimeConfigSnapshot(config);
