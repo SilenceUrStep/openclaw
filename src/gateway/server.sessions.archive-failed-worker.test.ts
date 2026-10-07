@@ -2,11 +2,12 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { createManagedWorktreeOwnerPolicy } from "../agents/worktrees/owner-protection.js";
 import { getRegistryWorktree } from "../agents/worktrees/registry.test-support.js";
 import { managedWorktrees, ManagedWorktreeService } from "../agents/worktrees/service.js";
 import { loadSessionEntry } from "../config/sessions/session-accessor.js";
+import { drainGlobalSingletonLifecycleState } from "../shared/global-singleton.js";
 import {
   closeOpenClawAgentDatabasesAsync,
   closeOpenClawAgentDatabasesForTest,
@@ -23,6 +24,8 @@ import { createWorkerSessionPlacementStore } from "./worker-environments/placeme
 
 const { createArchiveWorktreeFixture } = setupGatewaySessionsWorktreeTestHarness();
 const execFileAsync = promisify(execFile);
+
+afterEach(() => drainGlobalSingletonLifecycleState());
 
 async function pendingWorkerCleanup(sessionId: string, key: string) {
   const placements = createWorkerSessionPlacementStore();
@@ -152,6 +155,7 @@ test("failed worker cleanup keeps worktree reconstruction blocked until the work
     }),
   ).toMatchObject({ ok: true });
   await cleanupWorktrees();
+  expect(getRegistryWorktree(process.env, worktree.id)?.removedAt).toEqual(expect.any(Number));
   const { environment, reclaim, context } = await pendingWorkerCleanup(sessionId, key);
   const restore = vi.spyOn(ManagedWorktreeService.prototype, "restore");
   const unarchive = () =>

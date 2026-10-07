@@ -47,6 +47,10 @@ import type {
 import type { CronQuarantinedJob } from "../cron/types-shared.js";
 import type { FleetCellRecord } from "../fleet/registry.types.js";
 import type {
+  PlacementGrantReadInput,
+  PlacementGrantRows,
+} from "../gateway/operator-approval-placement-grants.read.js";
+import type {
   CronStandingGrantListing,
   CronStandingGrantLookupInput,
   ConsumeCronStandingGrantResult,
@@ -192,6 +196,7 @@ export type OpenClawStateReadCommand =
     }
   | { type: "operatorApprovals.listCronGrants"; input: { limit?: number } }
   | { type: "operatorApprovals.validateCronGrant"; input: CronStandingGrantLookupInput }
+  | { type: "operatorApprovals.placementGrant"; input: PlacementGrantReadInput }
   | PluginBlobReadCommand
   | { type: "subagents.sessionList" }
   | { type: "subagents.restore" }
@@ -354,6 +359,7 @@ export type OpenClawStateReadResult =
     }
   | { type: "operatorApprovals.listCronGrants"; grants: CronStandingGrantListing[] }
   | { type: "operatorApprovals.validateCronGrant"; result: ConsumeCronStandingGrantResult }
+  | { type: "operatorApprovals.placementGrant"; rows: PlacementGrantRows }
   | ReadResult<PluginBlobReadReply>
   | {
       type: "capture.readOnlyEvents";
