@@ -172,7 +172,7 @@ export function assertSupportedStateSchemaVersion(
       prepared?.contentVersion ??
       (userVersion > OPENCLAW_STATE_SCHEMA_VERSION
         ? userVersion
-        : readStateSchemaContentVersion(db));
+        : readStateSchemaContentVersion(db, userVersion));
     if (contentVersion > OPENCLAW_STATE_SCHEMA_VERSION) {
       throw createNewerSqliteSchemaVersionError(
         "OpenClaw state database",

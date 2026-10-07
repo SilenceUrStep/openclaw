@@ -122,7 +122,9 @@ it("reuses one reader in registered worker commands, refreshes idle, and reopens
   const configSelect = /^select "value_json", "updated_at_ms" from "config_machine_state"/iu;
   const contentVersionSelect = /^select "value_json" from "config_machine_state"/iu;
   const dataVersion = /^PRAGMA data_version$/iu;
+  const userVersion = /^PRAGMA user_version$/iu;
   expect(await value()).toBe(1);
+  expect(observation.queries.filter((sql) => userVersion.test(sql))).toHaveLength(2);
   expect(await value()).toBe(1);
   prepare.mockClear();
   observation.queries.length = 0;
