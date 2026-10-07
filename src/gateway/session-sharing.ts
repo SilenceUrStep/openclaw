@@ -169,7 +169,7 @@ export function resolveSessionMutationAuthorization(request: SessionMutationAuth
   const consuming = createSessionSharingConsumption({
     client: params.client,
     sharing: params.preparedSharing,
-    profiles: params.preparedProfiles,
+    getProfiles: () => params.preparedProfiles,
   });
   const { policy: preparedPolicy, consume: consumeSharing } = consuming;
   const sessionCap = (cfg: OpenClawConfig) =>

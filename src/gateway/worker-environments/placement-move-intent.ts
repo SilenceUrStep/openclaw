@@ -24,7 +24,7 @@ import {
   required,
   type WorkerSessionPlacementRecord,
 } from "./placement-record.js";
-import { getRequired, query, transitionValues } from "./placement-row-codec.js";
+import { find, getRequired, query, transitionValues } from "./placement-row-codec.js";
 import type { PlacementStoreRuntime } from "./placement-runtime.js";
 import { publishPlacementTurnClaimState } from "./placement-turn-authority.js";
 import { boundedWorkerError } from "./worker-error.js";
@@ -524,18 +524,16 @@ export function createPlacementMoveOps(runtime: PlacementStoreRuntime) {
       operationId: string;
       sessionId: string;
       expectedLocalGeneration?: number;
-    }): void {
-      write((db) => {
-        const intent = requireExactMove(db, input);
+    }): boolean {
+      return write((db) => {
         if (input.expectedLocalGeneration !== undefined) {
-          const current = getRequired(db, input.sessionId);
-          if (current.state !== "local" || current.generation !== input.expectedLocalGeneration) {
-            throw new Error(
-              `Session ${input.sessionId} changed before placement move cancellation`,
-            );
+          const current = find(db, required(input.sessionId, "move session id"));
+          if (current?.state !== "local" || current.generation !== input.expectedLocalGeneration) {
+            return false;
           }
         }
-        deleteExactMove(db, intent);
+        deleteExactMove(db, requireExactMove(db, input));
+        return true;
       });
     },
 

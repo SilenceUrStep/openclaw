@@ -19,6 +19,7 @@ import {
   type WorkerSessionPlacementRetirement,
 } from "./placement-retirement.js";
 import {
+  find,
   readWorkerPlacementsInDatabase,
   readWorkerPlacementsForReconcileInDatabase,
   updateTransition,
@@ -113,10 +114,10 @@ export const placementLifecycleOperations = {
   ),
   "workerPlacements.cancelMove": operation(
     "workerPlacements.cancelMove",
-    (runtime, input: MoveInput<"cancelPlacementMove">) => {
-      createPlacementMoveOps(runtime).cancelPlacementMove(input);
-      return { sessionId: input.sessionId };
-    },
+    (runtime, input: MoveInput<"cancelPlacementMove">) => ({
+      sessionId: input.sessionId,
+      changed: createPlacementMoveOps(runtime).cancelPlacementMove(input),
+    }),
   ),
   "workerPlacements.completeMoveSource": operation(
     "workerPlacements.completeMoveSource",
@@ -142,8 +143,15 @@ export const placementLifecycleOperations = {
   "workerPlacements.retire": operation(
     "workerPlacements.retire",
     (runtime, input: WorkerSessionPlacementRetirement) => {
-      retireWorkerSessionPlacement(runtime.read(), input);
-      return { sessionId: input.sessionId, retired: input.expectedState };
+      const db = runtime.read();
+      const retired = retireWorkerSessionPlacement(db, input, { onlyIfCurrent: true });
+      // Orphan reconciliation may retire the row while this command is queued.
+      if (!retired && find(db, input.sessionId)) {
+        throw new Error(`Worker session placement ${input.sessionId} changed before retirement`);
+      }
+      return retired
+        ? { sessionId: input.sessionId, retired: input.expectedState }
+        : { sessionId: input.sessionId, changed: false };
     },
   ),
   "workerPlacements.bindPrepared": operation(

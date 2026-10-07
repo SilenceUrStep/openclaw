@@ -4,8 +4,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, test, vi } from "vitest";
 import { createManagedWorktreeOwnerPolicy } from "../agents/worktrees/owner-protection.js";
-import { getRegistryWorktree } from "../agents/worktrees/registry.js";
-import { managedWorktrees } from "../agents/worktrees/service.js";
+import { getRegistryWorktree } from "../agents/worktrees/registry.test-support.js";
+import { managedWorktrees, ManagedWorktreeService } from "../agents/worktrees/service.js";
 import { loadSessionEntry } from "../config/sessions/session-accessor.js";
 import { drainGlobalSingletonLifecycleState } from "../shared/global-singleton.js";
 import {
@@ -114,7 +114,7 @@ test("failed worker cleanup does not block archive, reopen, or Undo, and retains
   );
   expect(deleted.ok).toBe(false);
   expect(reclaim).toHaveBeenCalledOnce();
-  const restore = vi.spyOn(managedWorktrees, "restore");
+  const restore = vi.spyOn(ManagedWorktreeService.prototype, "restore");
   try {
     expect(await patch(false)).toMatchObject({ ok: true });
     expect(restore).not.toHaveBeenCalled();
@@ -157,7 +157,7 @@ test("failed worker cleanup keeps worktree reconstruction blocked until the work
   await cleanupWorktrees();
   expect(getRegistryWorktree(process.env, worktree.id)?.removedAt).toEqual(expect.any(Number));
   const { environment, reclaim, context } = await pendingWorkerCleanup(sessionId, key);
-  const restore = vi.spyOn(managedWorktrees, "restore");
+  const restore = vi.spyOn(ManagedWorktreeService.prototype, "restore");
   const unarchive = () =>
     directSessionReq(
       "sessions.patch",

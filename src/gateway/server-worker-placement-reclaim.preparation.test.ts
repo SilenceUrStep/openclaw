@@ -65,7 +65,7 @@ async function cancellationLoadFixture(
   };
   const runtime = {
     managedWorktrees: {
-      findLiveByOwner: () => ({
+      findLiveByOwner: async () => ({
         id: "task-worktree",
         name: "test",
         repoFingerprint: "test",

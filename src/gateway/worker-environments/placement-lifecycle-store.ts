@@ -124,13 +124,12 @@ export function createPlacementLifecycleWorkerOps(runtime: {
           return;
         }
         published = true;
-        if (receipt.retired) {
+        if (captured.type === "workerPlacements.retire") {
           runtime.onRetired(receipt.sessionId);
         }
         if (
           receipt.changed === true ||
           receipt.moveRemoved ||
-          captured.type === "workerPlacements.cancelMove" ||
           captured.type === "workerPlacements.completeMove"
         ) {
           sessionChanges.emit({ all: true, scope: "worker-placements" });
@@ -177,9 +176,13 @@ export function createPlacementLifecycleWorkerOps(runtime: {
       input: Parameters<Moves["cancelPlacementMove"]>[0],
       guard: Guard = {},
     ) {
-      await execute(
-        { type: "workerPlacements.cancelMove", input: { ...input, nowMs: runtime.now?.() } },
-        guard.assertCurrent,
+      return (
+        (
+          await execute(
+            { type: "workerPlacements.cancelMove", input: { ...input, nowMs: runtime.now?.() } },
+            guard.assertCurrent,
+          )
+        ).changed === true
       );
     },
     async completePlacementMoveSourceToLocal(

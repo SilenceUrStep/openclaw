@@ -258,24 +258,6 @@ export async function applySessionModelSelectionInternal(
   if (authProfileError) {
     return { status: "rejected", reason: "not-allowed", message: authProfileError };
   }
-  // Metadata preparation can yield. Memory-only sessions need the same lock and
-  // replacement fence that persisted sessions enforce in their atomic write.
-  const currentEntry = params.storePath
-    ? startingEntry
-    : (params.sessionStore[params.sessionKey] ?? params.sessionEntry);
-  if (isModelSelectionLocked(currentEntry)) {
-    return { status: "rejected", reason: "locked", message: MODEL_SELECTION_LOCKED_MESSAGE };
-  }
-  if (
-    !params.storePath &&
-    (params.sessionStore[params.sessionKey] !== startingStoreEntry ||
-      currentEntry.sessionId !== initialEntry.sessionId)
-  ) {
-    return {
-      status: "conflict",
-      message: "Model change was not applied because the session changed. Retry.",
-    };
-  }
   const runtime = prepared.runtime;
   const thinkingCatalog = prepared.catalog;
   const selectedCatalogEntry = findSelectedCatalogEntry({ catalog: thinkingCatalog, ...request });
@@ -398,6 +380,21 @@ export async function applySessionModelSelectionInternal(
     const commitError = validateCommit();
     if (commitError) {
       return { status: "rejected", reason: "not-allowed", message: commitError };
+    }
+    // Both metadata and placement preparation can yield. Fence the in-memory
+    // write here, where persisted sessions enforce their lock and identity.
+    const currentEntry = params.sessionStore[params.sessionKey] ?? params.sessionEntry;
+    if (isModelSelectionLocked(currentEntry)) {
+      return { status: "rejected", reason: "locked", message: MODEL_SELECTION_LOCKED_MESSAGE };
+    }
+    if (
+      params.sessionStore[params.sessionKey] !== startingStoreEntry ||
+      currentEntry.sessionId !== initialEntry.sessionId
+    ) {
+      return {
+        status: "conflict",
+        message: "Model change was not applied because the session changed. Retry.",
+      };
     }
     adoptPersistedSessionSnapshot(params.sessionEntry, nextEntry);
     params.sessionStore[params.sessionKey] = params.sessionEntry;

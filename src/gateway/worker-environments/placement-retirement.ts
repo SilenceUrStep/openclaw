@@ -15,7 +15,8 @@ export type WorkerSessionPlacementRetirement = {
 export function retireWorkerSessionPlacement(
   db: DatabaseSync,
   input: WorkerSessionPlacementRetirement,
-): void {
+  options: { onlyIfCurrent?: boolean } = {},
+): boolean {
   const sessionId = required(input.sessionId, "session id");
   if (!RETIRABLE_PLACEMENT_STATES.some((state) => state === input.expectedState)) {
     throw new Error(`Cannot retire worker session placement from ${input.expectedState}`);
@@ -34,7 +35,11 @@ export function retireWorkerSessionPlacement(
       .where("turn_claim_owner_epoch", "is", null),
   );
   if (result.numAffectedRows !== 1n) {
+    if (options.onlyIfCurrent) {
+      return false;
+    }
     throw new Error(`Worker session placement ${sessionId} changed before retirement`);
   }
   publishPlacementTurnClaimCleared(db, sessionId, input.expectedState);
+  return true;
 }

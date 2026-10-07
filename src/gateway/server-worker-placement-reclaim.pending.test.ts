@@ -36,7 +36,7 @@ it.each(["active", "failed"] as const)(
       loadSessionRuntime: async () =>
         ({
           managedWorktrees: {
-            findLiveByOwner: () => ({
+            findLiveByOwner: async () => ({
               id: "cancel-failure-worktree",
               ownerId: sessionKey,
               path: "/fixture/workspace",

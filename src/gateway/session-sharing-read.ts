@@ -207,9 +207,9 @@ export type PreparedMutationSharing = {
 export function createSessionSharingConsumption(params: {
   client: GatewayClient | null;
   sharing: PreparedMutationSharing | undefined;
-  profiles: PreparedSessionSharingProfiles | undefined;
+  getProfiles: () => PreparedSessionSharingProfiles | undefined;
 }) {
-  const current = { sharing: params.sharing, profiles: params.profiles };
+  const current = { sharing: params.sharing, profiles: params.getProfiles() };
   return Object.assign(current, {
     policy: (cfg: OpenClawConfig) =>
       current.sharing
@@ -225,7 +225,7 @@ export function createSessionSharingConsumption(params: {
     consume: <T>(
       prepared: PreparedMutationSharing,
       consume: () => T,
-      profiles: PreparedSessionSharingProfiles | undefined = params.profiles,
+      profiles: PreparedSessionSharingProfiles | undefined = params.getProfiles(),
     ): T => {
       const previous = { sharing: current.sharing, profiles: current.profiles };
       Object.assign(current, { sharing: prepared, profiles });

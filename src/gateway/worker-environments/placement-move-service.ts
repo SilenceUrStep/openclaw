@@ -212,12 +212,14 @@ export function createWorkerPlacementMoveService(options: {
       // Source cleanup is settled. A canceled, unpublished destination leaves this
       // exact local completion for Stop; unrelated errors or replacements still fail.
       if (intent && local?.state === "local" && signal?.aborted && error === signal.reason) {
-        await options.placements.cancelPlacementMove({
+        const cancelled = await options.placements.cancelPlacementMove({
           operationId: intent.operationId,
           sessionId: request.sessionId,
           expectedLocalGeneration: local.generation,
         });
-        return local;
+        if (cancelled) {
+          return local;
+        }
       }
       const durableIntent =
         intent ?? (await options.placements.getPlacementMoveAsync(request.sessionId));
