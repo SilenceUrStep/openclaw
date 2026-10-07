@@ -47,6 +47,7 @@ function makeInput(
     runInput: {
       runParams: {
         sessionId: "session:assistant-failover",
+        sessionFile: "/tmp/openclaw-assistant-failover-test/session.jsonl",
         runId: "run:assistant-failover",
         workspaceDir: "/tmp/openclaw-assistant-failover-test",
         prompt: "Respond to the user",
