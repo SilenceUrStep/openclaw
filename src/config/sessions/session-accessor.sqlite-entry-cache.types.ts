@@ -4,6 +4,8 @@ import { isDeepStrictEqual } from "node:util";
 import type { SessionRowFacts } from "../../sessions/session-row-changes.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db-contract.js";
 import type { SessionEntryMaintenanceAgeChange } from "./session-accessor.sqlite-maintenance-age.js";
+import type { SessionMembershipFact } from "./session-membership-facts.types.js";
+import type { SessionTranscriptWatermark } from "./session-transcript-context-version.types.js";
 import type { InternalSessionEntry, SessionEntry } from "./types.js";
 
 export type SessionEntryCacheDatabase = Pick<OpenClawAgentDatabase, "agentId" | "db">;
@@ -75,31 +77,6 @@ export function projectSessionSharingEntry(entry: InternalSessionEntry) {
 
 export type SessionEntryPlaceholder = Readonly<{ sessionId: string }>;
 
-export function projectSessionEntryMembershipFacts(
-  entry: SessionEntry,
-  previous: Pick<SessionEntry, "sessionId"> | undefined,
-  membership?: readonly string[],
-): Extract<SessionRowFacts, { kind: "entry" }> {
-  return {
-    kind: "entry",
-    previousSessionId: previous?.sessionId,
-    sessionId: entry.sessionId,
-    category: entry.category?.trim() || null,
-    clearMembers: previous !== undefined && previous.sessionId !== entry.sessionId,
-    ...(membership
-      ? {
-          projection: {
-            membership,
-            participants: {
-              participants: entry.participants,
-              participantCount: entry.participantCount,
-            },
-          },
-        }
-      : {}),
-  };
-}
-
 export type SessionTranscriptInitializationPublication = {
   kind: "session-transcript-initialized";
   sessionKey: string;
@@ -140,6 +117,13 @@ export type PreparedSessionEntryChanges = {
   source: SessionEntryPublicationSource;
   entries: ReadonlyMap<string, SessionEntry>;
   sharing?: ReadonlyMap<string, SessionSharingEntry>;
+  projection?: ReadonlyMap<string, SessionEntryProjectionFacts>;
+};
+
+export type SessionEntryProjectionFacts = {
+  membership: SessionMembershipFact;
+  hasBoard: boolean;
+  activitySummaryWatermark: SessionTranscriptWatermark | undefined;
 };
 
 export type SessionEntryReplacementPublication = {
@@ -147,9 +131,9 @@ export type SessionEntryReplacementPublication = {
   pendingArchiveRecovery: boolean;
   previous: Map<string, Pick<SessionEntry, "sessionId" | "lifecycleRevision">>;
   current: Map<string, SessionEntry>;
-  membership: Map<string, readonly string[]>;
   ageChanges: SessionEntryMaintenanceAgeChange[];
   source?: SessionEntryPublicationSource;
+  projection?: ReadonlyMap<string, SessionEntryProjectionFacts>;
   changedKeys: string[];
   membershipInvalidatedKeys: string[];
   sharingUnchangedKeys: string[];
@@ -199,6 +183,7 @@ export type SessionEntryPublicationRecord = {
 export type PendingSessionEntryPublication = {
   superseded: Map<string, Pick<SessionEntry, "sessionId" | "lifecycleRevision"> | undefined>;
   metadataSuperseded: Set<string>;
+  projectionSuperseded: Set<string>;
   ownerChanges: Map<string, Extract<SessionRowFacts, { kind: "owner" }>>;
   membershipInvalidated: Set<string>;
   sharingUnchanged: Set<string>;

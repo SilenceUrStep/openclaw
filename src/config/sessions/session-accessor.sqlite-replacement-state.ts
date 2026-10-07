@@ -1,11 +1,15 @@
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { getAdmittedSqliteSchemaFacts } from "../../infra/sqlite-schema-facts.js";
 import { freezeJsonSnapshot } from "../../shared/immutable-data.js";
 import { readOpenClawAgentDatabaseIdentity } from "../../state/openclaw-agent-db-identity.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
+import { readSessionActivitySummary } from "./activity-summary.js";
+import { isInternalSessionEffectsKey } from "./internal-session-key.js";
 import { hasPendingSessionTranscriptArchives } from "./session-accessor.sqlite-archive-store-kernel.js";
 import { assertSessionCreationLabelAvailable } from "./session-accessor.sqlite-creation-read.js";
 import {
   sessionSharingEntriesEqual,
+  type SessionEntryProjectionFacts,
   type SessionEntryReplacementPublication,
 } from "./session-accessor.sqlite-entry-cache.types.js";
 import { sqliteSessionEntriesEqual } from "./session-accessor.sqlite-entry-equality.js";
@@ -28,6 +32,7 @@ import type {
   SessionEntryReplacementCommitted,
 } from "./session-accessor.sqlite-replacement-types.js";
 import { appendTranscriptEventsInTransaction } from "./session-accessor.sqlite-transcript-store.js";
+import { readSessionTranscriptWatermarkInDatabase } from "./session-accessor.sqlite-transcript-watermark.js";
 import type { SessionMaintenancePreservationSnapshot } from "./store-maintenance-preserve-snapshot.js";
 import type { SessionEntry } from "./types.js";
 
@@ -43,16 +48,18 @@ export function prepareSessionEntryReplacementPublication(
   );
   const invalidated = new Set([...result.membershipInvalidatedKeys, ...archived]);
   const current = new Map<string, SessionEntry>();
-  const membership = new Map<string, readonly string[]>();
-  const readCommitted =
-    result.current.size > 0
-      ? prepareExactSessionEntryRowReads(database, [...result.current.keys()], "list", undefined, {
-          includeMembership: true,
-        })
-      : undefined;
+  const projection = new Map<string, SessionEntryProjectionFacts>();
+  let readCommitted: ReturnType<typeof prepareExactSessionEntryRowReads> | undefined;
   for (const key of result.current.keys()) {
+    readCommitted ??= prepareExactSessionEntryRowReads(
+      database,
+      [...result.current.keys()],
+      "list",
+      undefined,
+      { includeBoardPresence: true, includeMembership: true },
+    );
     // Read the final persisted bytes and side tables after assignment, alias moves and maintenance.
-    const committed = readCommitted?.(key);
+    const committed = readCommitted(key);
     if (!committed) {
       throw new Error(`Session publication lost its committed metadata: ${key}`);
     }
@@ -64,7 +71,30 @@ export function prepareSessionEntryReplacementPublication(
       throw new Error(`Session publication lost its committed membership: ${key}`);
     }
     current.set(key, freezeJsonSnapshot(committed.entry));
-    membership.set(key, Object.freeze(memberIds));
+    const { entry } = committed;
+    projection.set(
+      key,
+      freezeJsonSnapshot({
+        membership: [
+          key,
+          isInternalSessionEffectsKey(key)
+            ? null
+            : (normalizeOptionalString(entry.category) ?? null),
+          memberIds,
+          {
+            ...(entry.participants ? { participants: entry.participants } : {}),
+            ...(entry.participantCount === undefined
+              ? {}
+              : { participantCount: entry.participantCount }),
+          },
+          entry.sessionId,
+        ],
+        hasBoard: committed.row.board_present === 1,
+        activitySummaryWatermark: readSessionActivitySummary(entry)
+          ? readSessionTranscriptWatermarkInDatabase(database, entry.sessionId)
+          : undefined,
+      }),
+    );
   }
   return {
     kind: "session-entry-replacements",
@@ -82,7 +112,7 @@ export function prepareSessionEntryReplacementPublication(
       ]),
     ),
     current,
-    membership,
+    projection,
     ageChanges: [...current].map(([sessionKey, entry]) =>
       captureSessionEntryMaintenanceAgeChange({
         sessionKey,

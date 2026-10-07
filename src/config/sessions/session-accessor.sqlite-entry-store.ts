@@ -20,10 +20,7 @@ import {
   publishSessionEntryCacheInvalidation,
   trackSessionEntryCacheWrite,
 } from "./session-accessor.sqlite-entry-cache.js";
-import {
-  projectSessionEntryMembershipFacts,
-  sessionSharingEntriesEqual,
-} from "./session-accessor.sqlite-entry-cache.types.js";
+import { sessionSharingEntriesEqual } from "./session-accessor.sqlite-entry-cache.types.js";
 import type { SqliteLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-equality.js";
 import {
   readExactSessionEntryRow,
@@ -637,7 +634,15 @@ export function writeSessionEntry(
       previousEntry: canonicalPreviousEntry,
       ...(!options.allowStoredAliases
         ? {
-            facts: projectSessionEntryMembershipFacts(normalizedEntry, canonicalPreviousEntry),
+            facts: {
+              kind: "entry" as const,
+              previousSessionId: canonicalPreviousEntry?.sessionId,
+              sessionId: normalizedEntry.sessionId,
+              category: normalizedEntry.category?.trim() || null,
+              clearMembers:
+                canonicalPreviousEntry !== undefined &&
+                canonicalPreviousEntry.sessionId !== normalizedEntry.sessionId,
+            },
           }
         : {}),
     },
