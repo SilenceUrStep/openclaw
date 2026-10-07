@@ -10,7 +10,6 @@ import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel-constants.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../kysely-sync.js";
 import { createAccountScopedConversationBindingManager } from "./account-scoped-conversation-bindings.js";
-import { currentConversationBindingRow } from "./current-conversation-binding-row.js";
 import {
   deleteCurrentConversationBindingRecordsBySession,
   listCurrentConversationBindingRecordsBySession,
@@ -266,21 +265,31 @@ it("inspects mixed owner batches once without replacing exact rows by legacy fal
         ...record.conversation,
         ...(parent ? { parentConversationId: parent } : {}),
       };
-      const row = currentConversationBindingRow(
-        { ...record, conversation },
-        conversation,
-        [
-          conversation.channel,
-          conversation.accountId,
-          parent ?? "",
-          conversation.conversationId,
-        ].join("␟"),
-      );
+      // Seed physical legacy and malformed rows outside the normalizing writer.
       executeSqliteQuerySync(
         db,
-        sql
-          .insertInto("current_conversation_bindings")
-          .values({ ...row, ...(malformed ? { record_json: "{" } : {}) }),
+        sql.insertInto("current_conversation_bindings").values({
+          binding_key: [
+            conversation.channel,
+            conversation.accountId,
+            parent ?? "",
+            conversation.conversationId,
+          ].join("␟"),
+          binding_id: record.bindingId,
+          target_session_key: record.targetSessionKey,
+          channel: conversation.channel,
+          account_id: conversation.accountId,
+          conversation_kind: "current",
+          parent_conversation_id: parent ?? null,
+          conversation_id: conversation.conversationId,
+          target_kind: record.targetKind,
+          status: record.status,
+          bound_at: record.boundAt,
+          expires_at: record.expiresAt ?? null,
+          metadata_json: record.metadata ? JSON.stringify(record.metadata) : null,
+          record_json: malformed ? "{" : JSON.stringify({ ...record, conversation }),
+          updated_at: Date.now(),
+        }),
       );
     };
     const exact = value("exact"),

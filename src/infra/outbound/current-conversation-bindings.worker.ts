@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { withExistingOpenClawStateDatabaseReadOnly } from "../../state/openclaw-state-db-readonly.js";
 import { runOpenClawStateWriteTransaction } from "../../state/openclaw-state-db.js";
 import type {
+  WorkerOperationContext,
   WorkerOperationHandlers,
   WorkerOperations,
   WorkerWriteOperationContext,
@@ -22,6 +23,22 @@ import type {
   CurrentConversationBindingTouch,
 } from "./current-conversation-bindings.worker-contract.js";
 import type { ConversationRef, SessionBindingRecord } from "./session-binding.types.js";
+
+function runBindingTransaction<T>(
+  context: WorkerOperationContext,
+  update: (db: DatabaseSync) => T,
+  database = context.open(),
+): T {
+  return runOpenClawStateWriteTransaction(
+    ({ db }) => {
+      requestSqliteWorkerOperationAdmission({ stage: "transaction", facts: undefined });
+      const result = update(db);
+      requestSqliteWorkerOperationAdmission({ stage: "commit", facts: undefined });
+      return result;
+    },
+    { database, ...context.stateOptions() },
+  );
+}
 
 /** The caller holds the shared-state write transaction and current host admission. */
 function touchCurrentConversationBindingInDatabase(
@@ -94,19 +111,19 @@ export const conversationBindingOperations = {
     ) ?? input.map(() => null),
   "conversationBindings.listBySessions": (
     input: { targetSessionKeys: readonly string[]; scope?: { channel: string; accountId: string } },
-    { open, stateOptions },
+    context,
   ) => {
-    const database = open();
+    const database = context.open();
     const prepared = input.targetSessionKeys.map((key) =>
       readCurrentConversationBindingListInDatabase(database.db, key, input.scope),
     );
     if (!prepared.some((list) => list.requiresPrune)) {
       return prepared.map((list) => list.records);
     }
-    return runOpenClawStateWriteTransaction(
-      ({ db }) => {
-        requestSqliteWorkerOperationAdmission({ stage: "transaction", facts: undefined });
-        const records = prepared.map((list, index) => {
+    return runBindingTransaction(
+      context,
+      (db) =>
+        prepared.map((list, index) => {
           const key = input.targetSessionKeys[index]!;
           const current = list.requiresPrune
             ? list
@@ -114,43 +131,25 @@ export const conversationBindingOperations = {
           return current.requiresPrune
             ? pruneCurrentConversationBindingListInTransaction(db, key, input.scope)
             : current.records;
-        });
-        requestSqliteWorkerOperationAdmission({ stage: "commit", facts: undefined });
-        return records;
-      },
-      { database, ...stateOptions() },
+        }),
+      database,
     );
   },
-  "conversationBindings.resolve": (input: ConversationRef, { open, stateOptions }) => {
-    const database = open();
+  "conversationBindings.resolve": (input: ConversationRef, context) => {
+    const database = context.open();
     const result = readCurrentConversationBindingResolutionInDatabase(database.db, input);
     if (!result.repair) {
       return result.record;
     }
-    return runOpenClawStateWriteTransaction(
-      ({ db }) => {
-        requestSqliteWorkerOperationAdmission({ stage: "transaction", facts: undefined });
-        const record = updateCurrentConversationBindingRecordInDatabase(
-          db,
-          input,
-          (current) => current,
-        ).current;
-        requestSqliteWorkerOperationAdmission({ stage: "commit", facts: undefined });
-        return record;
-      },
-      { database, ...stateOptions() },
+    return runBindingTransaction(
+      context,
+      (db) =>
+        updateCurrentConversationBindingRecordInDatabase(db, input, (current) => current).current,
+      database,
     );
   },
-  "conversationBindings.touch": (input: CurrentConversationBindingTouch, { open, stateOptions }) =>
-    runOpenClawStateWriteTransaction(
-      ({ db }) => {
-        requestSqliteWorkerOperationAdmission({ stage: "transaction", facts: undefined });
-        const record = touchCurrentConversationBindingInDatabase(db, input);
-        requestSqliteWorkerOperationAdmission({ stage: "commit", facts: undefined });
-        return record;
-      },
-      { database: open(), ...stateOptions() },
-    ),
+  "conversationBindings.touch": (input: CurrentConversationBindingTouch, context) =>
+    runBindingTransaction(context, (db) => touchCurrentConversationBindingInDatabase(db, input)),
 } satisfies WorkerOperationHandlers<WorkerWriteOperationContext>;
 
 export type CurrentConversationBindingWorkerOperations = WorkerOperations<
