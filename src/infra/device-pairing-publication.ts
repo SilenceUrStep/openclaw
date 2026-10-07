@@ -32,8 +32,8 @@ type Publication = {
 
 function notifyPairingSources(publication: Publication, deviceIds?: readonly string[]) {
   const listeners = deviceIds
-    ? deviceIds.flatMap((deviceId) => [...(publication.listeners.get(deviceId) ?? [])])
-    : [...publication.listeners.values()].flatMap((entries) => [...entries]);
+    ? deviceIds.flatMap((deviceId) => Array.from(publication.listeners.get(deviceId) ?? []))
+    : Array.from(publication.listeners.values()).flatMap((entries) => Array.from(entries));
   for (const listener of listeners) {
     listener();
   }

@@ -1,4 +1,5 @@
 import { sha256Hex } from "@openclaw/normalization-core/node-crypto";
+import { normalizeDeviceAuthScopes } from "../shared/device-auth.js";
 import { roleScopesAllow } from "../shared/operator-scope-compat.js";
 import type { NodePairingGeneration, NodePairingState } from "./device-pairing-core.types.js";
 import {
@@ -9,6 +10,12 @@ import type { DeviceAuthToken, PairedDevice } from "./device-pairing.types.js";
 export type { NodePairingGeneration, NodePairingState } from "./device-pairing-core.types.js";
 
 export type PairedDeviceTokenIdentity = { deviceId: string; key: string };
+
+/** Use the same persisted approval ceiling for token verification and retained authority. */
+export function resolveApprovedDeviceScopeBaseline(device: PairedDevice): string[] | null {
+  const baseline = device.approvedScopes ?? device.scopes;
+  return Array.isArray(baseline) ? normalizeDeviceAuthScopes(baseline) : null;
+}
 
 /** Pin the credential actually accepted or issued, never a successor found on a later read. */
 export function resolveAuthenticatedDeviceTokenIdentity(
@@ -125,11 +132,11 @@ export function isPairedDeviceTokenIdentityCurrent(
   ) {
     return false;
   }
-  const approvedScopes = device.approvedScopes ?? device.scopes;
+  const approvedScopes = resolveApprovedDeviceScopeBaseline(device);
   // Match live token verification: the whole token must remain approved, not
   // merely the scopes this continuation happens to request.
   return (
-    approvedScopes !== undefined &&
+    approvedScopes !== null &&
     roleScopesAllow({
       role: normalizedRole,
       requestedScopes: token.scopes,

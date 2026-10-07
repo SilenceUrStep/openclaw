@@ -87,7 +87,9 @@ async function startAutomationProvider() {
         restartHold.reached = true;
         // The original request remains effect-free until its owned Gateway dies.
         // Closing that connection releases the hold; no response is replayed.
-        await new Promise<void>((resolve) => response.once("close", resolve));
+        await new Promise<void>((resolve) => {
+          response.once("close", resolve);
+        });
         return;
       }
       const currentMarker = markerPattern.exec(splitMockConversationContext(userText).current)?.[1];
