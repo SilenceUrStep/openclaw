@@ -224,6 +224,13 @@ function futureFixtureUpdatedAt(): number {
   return Date.now() + 60_000;
 }
 
+type HistoryPage = {
+  messages?: Array<{ __openclaw?: { seq?: number } }>;
+  nextOffset?: number;
+  hasMore?: boolean;
+  totalMessages?: number;
+};
+
 function readOpenClawSeq(message: unknown): number | undefined {
   if (!message || typeof message !== "object" || Array.isArray(message)) {
     return undefined;
@@ -4615,11 +4622,7 @@ describe("gateway server chat", () => {
         }),
       ]);
 
-      const page = await rpcReq<{
-        messages?: Array<{ __openclaw?: { seq?: number } }>;
-        nextOffset?: number;
-        hasMore?: boolean;
-      }>(
+      const page = await rpcReq<HistoryPage>(
         ws,
         "chat.history",
         makeMainSessionParams({
@@ -5315,11 +5318,6 @@ describe("gateway server chat", () => {
         }),
       ]);
 
-      type HistoryPage = {
-        messages?: Array<{ __openclaw?: { seq?: number } }>;
-        nextOffset?: number;
-        hasMore?: boolean;
-      };
       const firstPage = await rpcReq<HistoryPage>(
         ws,
         "chat.history",
@@ -5438,12 +5436,6 @@ describe("gateway server chat", () => {
         }
         await writeMainSessionTranscript(events);
 
-        type HistoryPage = {
-          messages?: Array<{ __openclaw?: { seq?: number } }>;
-          nextOffset?: number;
-          hasMore?: boolean;
-          totalMessages?: number;
-        };
         const first = await rpcReq<HistoryPage>(
           ws,
           "chat.history",
@@ -5644,6 +5636,7 @@ describe("gateway server chat", () => {
         await writeMainSessionTranscript([
           createTextTranscriptEvent("user", "reachable older message", { timestamp: Date.now() }),
           JSON.stringify({
+            id: "oversized-history-source",
             message: {
               role: "assistant",
               // Replay metadata repeats the text; keep each row below the per-message byte cap.
@@ -5661,15 +5654,11 @@ describe("gateway server chat", () => {
           }),
         ]);
 
-        type HistoryPage = {
-          messages?: Array<{ __openclaw?: { seq?: number; truncated?: boolean } }>;
-          nextOffset?: number;
-          hasMore?: boolean;
-        };
         const firstPage = await rpcReq<HistoryPage>(
           ws,
           "chat.history",
           makeMainSessionParams({
+            // Keep the older row for paging while selecting every oversized sibling.
             limit: projectedSiblingCount,
             offset: 0,
             maxChars: 100_000,
@@ -5678,7 +5667,16 @@ describe("gateway server chat", () => {
         expect(firstPage.ok).toBe(true);
         const firstMessages = firstPage.payload?.messages;
         expect(firstMessages).toHaveLength(1);
-        expect(firstMessages?.[0]).toMatchObject({ __openclaw: { seq: 2, truncated: true } });
+        expect(firstPage.payload?.messages).toMatchObject([
+          {
+            __openclaw: {
+              id: "oversized-history-source",
+              seq: 2,
+              truncated: true,
+              reason: "oversized",
+            },
+          },
+        ]);
         expect(firstPage.payload?.hasMore).toBe(true);
         expect(firstPage.payload?.nextOffset).toBeGreaterThan(0);
         expect(

@@ -258,8 +258,8 @@ export function readOpenClawStateReadOnlyLocation<T>(
       result = {
         status: "available",
         value: runSqliteReadOperationSync(opened.database.db, () => {
-          assertStateReadSchemaForPolicy(opened.database.db, pathname, existingSchema);
           admitSqliteSchema(opened.database.db);
+          assertStateReadSchemaForPolicy(opened.database.db, pathname, existingSchema);
           return operation(opened.database);
         }),
       };
@@ -337,8 +337,8 @@ export function openOpenClawStateReadOnlyLocation(
   const connection = openOpenClawStateReadConnection(pathname, source);
   try {
     runSqliteReadOperationSync(connection.database.db, () => {
-      assertStateReadSchema(connection.database.db, pathname);
       admitSqliteSchema(connection.database.db);
+      assertStateReadSchema(connection.database.db, pathname);
     });
   } catch (error) {
     try {

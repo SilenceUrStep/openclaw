@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { withinTest } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import {
   clearRuntimeConfigSnapshot,
@@ -48,7 +49,12 @@ beforeEach(() => {
     opened.push({ agentId, close });
     return {
       close,
-      run: async () => undefined,
+      run: async (_source, operation) =>
+        operation({
+          execute() {
+            throw new Error("Native commands are isolated in this lifecycle fixture");
+          },
+        }),
       failure: () => undefined,
       isPrepared: () => false,
       captureClaim: () => {
@@ -261,60 +267,23 @@ it("keeps warm executors through unrelated configuration publication", async () 
   expect(closedAgents()).toEqual([]);
 });
 
-it("retires a changed storage path after its last borrower settles", async () => {
+it("admits a fresh borrower after config publication while fencing the old borrower and native close", async () => {
   const config: OpenClawConfig = { agents: { entries: { first: {} } } };
   setRuntimeConfigSnapshot(config);
-  const first = capture("first");
-  const second = capture("first");
-  await first.prepare(source);
-  setRuntimeConfigSnapshot({
-    ...config,
-    session: { store: path.join(env.OPENCLAW_STATE_DIR!, "relocated", "{agentId}.sqlite") },
-  });
-  // Returning to the original locator must not retain the superseded cache entry.
-  setRuntimeConfigSnapshot(config);
-  expect(() => first.assertCurrent()).not.toThrow();
-  expect(() => second.assertCurrent()).not.toThrow();
-  await first.release();
-  expect(closedAgents()).toEqual([]);
-  await second.release();
-  expect(closedAgents()).toEqual(["first"]);
-});
-
-it("revokes agent removal while a changed storage path is still borrowed", async () => {
-  setRuntimeConfigSnapshot({ agents: { entries: { first: {}, second: {} } } });
-  const execution = capture("first");
-  await execution.prepare(source);
-  const session = {
-    store: path.join(env.OPENCLAW_STATE_DIR!, "relocated", "{agentId}.sqlite"),
-  };
-  setRuntimeConfigSnapshot({ agents: { entries: { first: {}, second: {} } }, session });
-  expect(() => execution.assertCurrent()).not.toThrow();
-  setRuntimeConfigSnapshot({ agents: { entries: { second: {} } }, session });
-  expect(() => execution.assertCurrent()).toThrow("Agent database execution admission is closed");
-  await execution.release();
-  expect(closedAgents()).toEqual(["first"]);
-});
-
-it("readmits a captured store after its relocated idle generation finishes closing", async () => {
-  setRuntimeConfigSnapshot({ agents: { entries: { first: {} } } });
-  const original = await use("first");
+  const previous = capture("first");
+  await previous.prepare(source);
   const first = opened[0];
   assert(first);
   const closing = createDeferredCore();
-  first.close.mockImplementationOnce(() => closing.promise);
-  let borrowed: ReturnType<typeof capture> | undefined;
+  first.close.mockImplementation(() => closing.promise);
+  let next: ReturnType<typeof capture> | undefined;
   try {
     setRuntimeConfigSnapshot({
-      agents: { entries: { first: {} } },
+      ...config,
       session: { store: path.join(env.OPENCLAW_STATE_DIR!, "relocated", "{agentId}.sqlite") },
     });
-    const next = captureOpenClawAgentDatabaseExecution({
-      agentId: "first",
-      env,
-      path: original.path,
-    });
-    borrowed = next;
+    expect(() => previous.assertCurrent()).toThrow("admission is closed");
+    next = capture("first");
     let prepared = false;
     const preparing = next.prepare(source).then(() => {
       prepared = true;
@@ -325,10 +294,174 @@ it("readmits a captured store after its relocated idle generation finishes closi
     closing.resolve();
     await preparing;
     expect(opened).toHaveLength(2);
-    expect(() => next.assertCurrent()).not.toThrow();
+    expect(() => previous.assertCurrent()).toThrow("admission is closed");
+    const staleCleanup = vi.fn(async () => undefined);
+    await expect(
+      previous.runExisting(source, staleCleanup, { retireNativeOnFailure: true }),
+    ).rejects.toThrow("admission is closed");
+    expect(staleCleanup).not.toHaveBeenCalled();
+    expect(opened[1]?.close).not.toHaveBeenCalled();
+    next.assertCurrent();
+    setRuntimeConfigSnapshot(config);
+    expect(() => next?.assertCurrent()).toThrow("admission is closed");
   } finally {
     closing.resolve();
-    await borrowed?.release();
+    await previous.release();
+    await next?.release();
   }
-  expect(closedAgents()).toEqual(["first", "first"]);
+});
+
+it.each(["success", "failure"] as const)(
+  "settles an accepted callback before relocated readmission after %s",
+  async (outcome) => {
+    const config: OpenClawConfig = { agents: { entries: { first: {} } } };
+    setRuntimeConfigSnapshot(config);
+    const previous = capture("first");
+    const sibling = capture("first");
+    await previous.prepare(source);
+    const entered = createDeferredCore();
+    const resume = createDeferredCore();
+    const failure = new Error("Accepted callback failed");
+    const operation = previous.runExisting(
+      source,
+      async () => {
+        entered.resolve();
+        await resume.promise;
+        previous.assertCurrent();
+        expect(() => sibling.assertCurrent()).toThrow("admission is closed");
+        await expect(previous.prepare(source)).rejects.toThrow("admission is closed");
+        await expect(
+          previous.runExisting(source, async () => undefined, { retireNativeOnFailure: true }),
+        ).rejects.toThrow("admission is closed");
+        if (outcome === "failure") {
+          throw failure;
+        }
+        return "settled";
+      },
+      { retireNativeOnFailure: true },
+    );
+    const result = Promise.allSettled([operation]);
+    let next: ReturnType<typeof capture> | undefined;
+    let preparing: Promise<void> | undefined;
+    try {
+      await entered.promise;
+      setRuntimeConfigSnapshot({
+        ...config,
+        session: { store: path.join(env.OPENCLAW_STATE_DIR!, "relocated", "{agentId}.sqlite") },
+      });
+      setRuntimeConfigSnapshot(config);
+      expect(() => previous.assertCurrent()).toThrow("admission is closed");
+      next = capture("first");
+      preparing = next.prepare(source);
+      expect(closedAgents()).toEqual([]);
+      expect(opened).toHaveLength(1);
+      resume.resolve();
+      expect(await result).toEqual([
+        outcome === "success"
+          ? { status: "fulfilled", value: "settled" }
+          : { status: "rejected", reason: failure },
+      ]);
+      await preparing;
+      next.assertCurrent();
+      expect(opened).toHaveLength(2);
+      expect(closedAgents()).toEqual(["first"]);
+      expect(() => previous.assertCurrent()).toThrow("admission is closed");
+    } finally {
+      resume.resolve();
+      await Promise.allSettled([operation, preparing]);
+      await previous.release();
+      await sibling.release();
+      await next?.release();
+    }
+  },
+);
+
+it("revokes an accepted callback when relocation is followed by agent removal", async () => {
+  const config: OpenClawConfig = { agents: { entries: { first: {}, second: {} } } };
+  setRuntimeConfigSnapshot(config);
+  const execution = capture("first");
+  await execution.prepare(source);
+  try {
+    await expect(
+      execution.runExisting(source, async () => {
+        const session = {
+          store: path.join(env.OPENCLAW_STATE_DIR!, "relocated", "{agentId}.sqlite"),
+        };
+        setRuntimeConfigSnapshot({ ...config, session });
+        execution.assertCurrent();
+        setRuntimeConfigSnapshot({ agents: { entries: { second: {} } }, session });
+        execution.assertCurrent();
+      }),
+    ).rejects.toThrow("admission is closed");
+  } finally {
+    await execution.release();
+  }
+  expect(closedAgents()).toEqual(["first"]);
+});
+
+it("returns an entered nested refusal without joining its enclosing callback's close", async ({
+  signal,
+}) => {
+  const execution = capture("first");
+  await execution.prepare(source);
+  const first = opened[0];
+  assert(first);
+  const nativeClose = createDeferredCore();
+  first.close.mockImplementationOnce(() => nativeClose.promise);
+  const entered = createDeferredCore();
+  const continueOuter = createDeferredCore();
+  const checked = createDeferredCore();
+  const releaseOuter = createDeferredCore();
+  const failure = new Error("Nested callback refused");
+  let nested: Promise<unknown> | undefined;
+  const outer = execution.runExisting(source, async () => {
+    nested = execution.runExisting(
+      source,
+      async () => {
+        entered.resolve();
+        throw failure;
+      },
+      { retireNativeOnFailure: true },
+    );
+    void nested.catch(() => undefined);
+    await continueOuter.promise;
+    // A timed-out negative control still releases the parent and joins its accepted child.
+    if (!signal.aborted) {
+      await expect(execution.prepare(source)).rejects.toThrow("admission is closed");
+      await expect(execution.runExisting(source, async () => undefined)).rejects.toThrow(
+        "admission is closed",
+      );
+      execution.assertCurrent();
+      checked.resolve();
+    }
+    await releaseOuter.promise;
+    return "outer settled";
+  });
+  let next: ReturnType<typeof capture> | undefined;
+  let preparing: Promise<void> | undefined;
+  try {
+    await withinTest(entered.promise, signal);
+    assert(nested);
+    await expect(withinTest(nested, signal)).rejects.toBe(failure);
+    continueOuter.resolve();
+    await withinTest(checked.promise, signal);
+    expect(first.close).not.toHaveBeenCalled();
+    next = capture("first");
+    preparing = next.prepare(source);
+    expect(opened).toHaveLength(1);
+    releaseOuter.resolve();
+    await expect(withinTest(outer, signal)).resolves.toBe("outer settled");
+    expect(first.close).toHaveBeenCalledOnce();
+    nativeClose.resolve();
+    await withinTest(preparing, signal);
+    next.assertCurrent();
+    expect(opened).toHaveLength(2);
+  } finally {
+    continueOuter.resolve();
+    releaseOuter.resolve();
+    nativeClose.resolve();
+    await Promise.allSettled([outer, nested, preparing]);
+    await execution.release();
+    await next?.release();
+  }
 });

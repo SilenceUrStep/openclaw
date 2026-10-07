@@ -197,8 +197,7 @@ describe("runSessionRegistryMaintenance", () => {
         const mainKey = await writeStaleCronSession(mainStorePath, "main");
         const retainedKey = await writeStaleCronSession(retainedStorePath, "retained");
         const databasePath = resolveSqliteTargetFromSessionStorePath(retainedStorePath).path;
-        await closeOpenClawAgentDatabasesAsync();
-        closeOpenClawAgentDatabasesForTest();
+        await closeOpenClawAgentDatabasesAsync(state.stateDir);
         runOpenClawStateWriteTransaction((database) => {
           database.db.exec("DROP TABLE agent_deletion_journal");
           if (history === "reconstructed") {

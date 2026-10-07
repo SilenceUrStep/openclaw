@@ -13,6 +13,10 @@ import { createAgentRunRestartAbortError } from "../../agents/run-termination.js
 import { replaceSessionEntrySync } from "../../config/sessions/session-accessor.sqlite-entry.js";
 import * as nodeSqlite from "../../infra/node-sqlite.js";
 import * as workerAdmission from "../../infra/sqlite-worker-operation-admission.js";
+import {
+  markGatewayRestartDraining,
+  resetGatewayWorkAdmission,
+} from "../../process/gateway-work-admission.js";
 import { AsyncWorkScope } from "../../shared/async-work-scope.js";
 import { closeOpenClawAgentDatabaseByPathAsync } from "../../state/openclaw-agent-db.js";
 import * as agentWriteAdmission from "../../state/openclaw-agent-write-admission.js";
@@ -30,6 +34,7 @@ beforeEach(() => {
 
 afterEach(() => {
   testing.resetReplyRunRegistry();
+  resetGatewayWorkAdmission();
   vi.restoreAllMocks();
 });
 
@@ -307,7 +312,7 @@ it("cancels a contended persistent admission without claiming the reply or poiso
 });
 
 it.each(["complete", "user-abort", "restart-abort", "frozen-restart"] as const)(
-  "keeps successors behind physical lease eviction after %s while the idle executor cache is full",
+  "keeps successors behind physical claim release after %s during executor drain with a full idle cache",
   async (ending) => {
     await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
       const activePath = path.join(state.sessionsDir(), "agent.sqlite");
@@ -375,6 +380,8 @@ it.each(["complete", "user-abort", "restart-abort", "frozen-restart"] as const)(
         const opened = vi.spyOn(nodeSqlite, "openNodeSqliteDatabase");
         let successor: ReturnType<typeof waitForReplyRunSuccessorAdmission> | undefined;
         try {
+          // Drain forces physical retirement of the active owner and the full idle cache.
+          markGatewayRestartDraining();
           if (ending !== "complete") {
             active.operation.setPhase("running");
             active.operation.attachBackend({
@@ -421,9 +428,10 @@ it.each(["complete", "user-abort", "restart-abort", "frozen-restart"] as const)(
             sql.restore();
           }
         }
-        expect(leases.all(activePath)).toHaveLength(1);
-        for (const [index, target] of idleTargets.entries()) {
-          expect(leases.all(target.storePath)).toHaveLength(index === 0 ? 0 : 1);
+        expect(leases.all(activePath)).toEqual([]);
+        for (const target of idleTargets) {
+          await closeOpenClawAgentDatabaseByPathAsync(target.storePath);
+          expect(leases.all(target.storePath)).toEqual([]);
         }
       } finally {
         await completeAdmission(active, activeKey);

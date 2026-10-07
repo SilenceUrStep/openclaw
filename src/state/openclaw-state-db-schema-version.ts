@@ -5,7 +5,11 @@ import {
   prepareSqliteQuerySync,
 } from "../infra/kysely-sync.js";
 import { collectSqliteSchemaIssues } from "../infra/sqlite-schema-contract.js";
-import { getAdmittedSqliteSchemaFacts } from "../infra/sqlite-schema-facts.js";
+import {
+  getAdmittedSqliteSchemaFacts,
+  getSqliteReadOperationRevision,
+  type SqliteReadOperationRevision,
+} from "../infra/sqlite-schema-facts.js";
 import { SqliteSchemaMismatchError } from "../infra/sqlite-schema-issues.js";
 import {
   createNewerSqliteSchemaVersionError,
@@ -28,6 +32,11 @@ const contentVersionQuery = createSqliteQueryCache((db) =>
   ),
 );
 
+const admittedContentVersions = new WeakMap<
+  SqliteReadOperationRevision,
+  { value: number | undefined }
+>();
+
 /** Content and its marker commit together, even while older readers retain their version floor. */
 export function readStateSchemaContentVersion(db: DatabaseSync): number {
   const schema = getAdmittedSqliteSchemaFacts(db);
@@ -35,11 +44,19 @@ export function readStateSchemaContentVersion(db: DatabaseSync): number {
 }
 
 function readContentVersion(db: DatabaseSync, published: number): number {
+  const revision = getSqliteReadOperationRevision(db);
+  const cached = revision && admittedContentVersions.get(revision);
+  if (cached) {
+    return Math.max(published, cached.value ?? published);
+  }
   if (!tableExists(db, "config_machine_state")) {
     return published;
   }
   const row = contentVersionQuery(db)().rows[0];
   if (!row) {
+    if (revision) {
+      admittedContentVersions.set(revision, { value: undefined });
+    }
     return published;
   }
   let contentVersion: unknown;
@@ -59,6 +76,9 @@ function readContentVersion(db: DatabaseSync, published: number): number {
     throw new SqliteSchemaMismatchError(
       `Invalid shared state schema content version in ${CONTENT_VERSION_KEY}.`,
     );
+  }
+  if (revision) {
+    admittedContentVersions.set(revision, { value: contentVersion });
   }
   return Math.max(published, contentVersion);
 }

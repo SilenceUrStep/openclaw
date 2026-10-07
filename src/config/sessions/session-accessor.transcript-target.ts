@@ -69,7 +69,10 @@ export async function resolveSessionTranscriptRuntimeTarget(
   ) {
     return { ...readSessionTranscriptRuntimeTarget(bound, options), storePath };
   }
-  const { withSessionStoreReaderInWorker } = await import("./session-entry-read-runtime.js");
+  const [{ withSessionStoreReaderInWorker }, { projectionLane }] = await Promise.all([
+    import("./session-entry-read-runtime.js"),
+    import("./session-transcript-worker-resources.js"),
+  ]);
   const target = await withSessionStoreReaderInWorker(
     bound,
     async ({ reader, database, logicalAgentId, continuation, assertCurrent }) => {
@@ -87,7 +90,7 @@ export async function resolveSessionTranscriptRuntimeTarget(
       assertCurrent();
       return selected;
     },
-    { backing: true, dataOnly: true },
+    { backing: true, lane: projectionLane, dataOnly: true },
   );
   return { ...target, storePath };
 }

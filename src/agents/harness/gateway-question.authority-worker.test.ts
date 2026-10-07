@@ -18,6 +18,7 @@ import { createSecretStoreWriteService } from "../../gateway/server-methods/secr
 import { createDeferredCore } from "../../shared/deferred.js";
 import { closeOpenClawAgentDatabaseByPathAsync } from "../../state/openclaw-agent-db-lifecycle.js";
 import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.paths.js";
+import { runOpenClawAgentWriteAdmission } from "../../state/openclaw-agent-write-admission.js";
 import { createTestGatewayScheduler } from "../../test-utils/gateway-scheduler-clock.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { withGatewayToolCallerIdentity } from "../tools/gateway-caller-context.js";
@@ -225,20 +226,20 @@ it.each([
       assertCurrent,
       toolAuthorityPreparation: preparation,
     };
-    const revokePolicy = () => {
-      const peer = new DatabaseSync(
-        resolveOpenClawAgentSqlitePath({ agentId: "policy", env: state.env }),
-      );
-      try {
-        peer
-          .prepare(
-            "UPDATE session_nodes SET entry_json = json_remove(entry_json, '$.sandboxMode') WHERE session_key = ?",
-          )
-          .run(policyKey);
-      } finally {
-        peer.close();
-      }
-    };
+    const revokePolicy = () =>
+      // Setup starts worker maintenance; share its writer lane without publishing the mutation.
+      runOpenClawAgentWriteAdmission({ agentId: "policy", env: state.env }, ({ canonicalPath }) => {
+        const peer = new DatabaseSync(canonicalPath);
+        try {
+          peer
+            .prepare(
+              "UPDATE session_nodes SET entry_json = json_remove(entry_json, '$.sandboxMode') WHERE session_key = ?",
+            )
+            .run(policyKey);
+        } finally {
+          peer.close();
+        }
+      });
     const pending = withGatewayToolCallerIdentity(
       { agentId: "main", sessionKey, gatewayContextResolver: () => context },
       () =>
@@ -296,7 +297,7 @@ it.each([
         );
       }
       if (change === "foreign-policy") {
-        revokePolicy();
+        await revokePolicy();
       } else if (change === "creator-closed") {
         controller.abort(new Error("question creator closed during final read"));
       }

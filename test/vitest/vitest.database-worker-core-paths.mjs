@@ -1,9 +1,11 @@
 // These consumers need the host-owned SQLite broker, which runs in forked processes.
 export const databaseWorkerCoreTestFiles = [
+  "src/agents/embedded-agent-runner/cli-backend-dispatch.test.ts",
   "src/gateway/chat-display-projection.media.test.ts",
   "src/plugin-sdk/session-transcript-lock.worker.test.ts",
   "src/plugin-sdk/session-transcript-runtime.channel-mirror.test.ts",
   "src/plugin-sdk/session-transcript-runtime.configured-store.test.ts",
+  "src/plugin-sdk/session-transcript-runtime.delivery-facts.test.ts",
   "src/plugin-sdk/session-transcript-lock.native.test.ts",
   "src/gateway/worker-environments/worker-turn-transcript-target.test.ts",
   "src/state/openclaw-agent-db.worker-admission.test.ts",
@@ -657,7 +659,6 @@ export const databaseWorkerCoreTestFiles = [
   "src/agents/worktrees/service.removal-safety.test.ts",
   "src/agents/worktrees/service.remove-lease.test.ts",
   "src/agents/worktrees/service.retire-snapshot.test.ts",
-  "src/agents/worktrees/service.snapshot-index.test.ts",
   "src/agents/worktrees/service.exact-state.test.ts",
   "src/agents/worktrees/service.exact-state-races.test.ts",
   "src/agents/worktrees/service.source-only-filters.test.ts",
