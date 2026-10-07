@@ -1,4 +1,4 @@
-// Built-CLI proof for durable Doctor plugin-index refresh during gateway startup.
+// Built-CLI proof for durable plugin-index refresh after Gateway readiness.
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -62,7 +62,9 @@ describe("Doctor plugin index persistence built CLI proof", () => {
     );
   }, 120_000);
 
-  it("starts after replacing and verifying a stale persisted Doctor index", async () => {
+  it("starts with current metadata and refreshes the stale persisted index after readiness", async ({
+    signal,
+  }) => {
     const instance = await createOpenClawTestInstance({
       name: "doctor-plugin-index-persistence",
       env: {
@@ -132,6 +134,48 @@ describe("Doctor plugin index persistence built CLI proof", () => {
     ]);
     await instance.startGateway();
     expect(hasActiveStartupMigrationLease({ env: instance.env }), instance.logs()).toBe(false);
+
+    const child = instance.child;
+    if (!child) {
+      throw new Error("Gateway process is unavailable after readiness");
+    }
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        child.stdout.off("data", check);
+        child.stderr.off("data", check);
+        child.off("close", closed);
+        signal.removeEventListener("abort", aborted);
+      };
+      const closed = () => {
+        cleanup();
+        reject(
+          new Error(`Gateway stopped before registry maintenance settled\n${instance.logs()}`),
+        );
+      };
+      const aborted = () => {
+        cleanup();
+        reject(signal.reason);
+      };
+      function check() {
+        if (
+          /startup (?:phase|trace): startup\.maintenance\.plugin-registry [\d.]+ms total=/u.test(
+            instance.logs(),
+          )
+        ) {
+          cleanup();
+          resolve();
+        } else if (child.exitCode !== null || child.signalCode !== null) {
+          closed();
+        } else if (signal.aborted) {
+          aborted();
+        }
+      }
+      child.stdout.on("data", check);
+      child.stderr.on("data", check);
+      child.once("close", closed);
+      signal.addEventListener("abort", aborted, { once: true });
+      check();
+    });
 
     clearPluginMetadataLifecycleCaches();
     closeOpenClawStateDatabaseForTest();

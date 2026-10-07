@@ -22,9 +22,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./config-preflight-snapshot.js", () => ({
   readConfigPreflightSnapshot: mocks.read,
   readAdmittedConfigSnapshot: mocks.read,
-  needsRefreshedPluginIndexPersistence: () => false,
   assertPreflightConfigUnchanged: vi.fn(),
-  persistRefreshedPluginIndex: vi.fn(),
 }));
 vi.mock("../infra/sqlite-readonly-worker.js", () => ({
   withSqliteReadOnlyWorkerScope: (run: () => unknown) => run(),
