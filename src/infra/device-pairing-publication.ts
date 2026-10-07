@@ -22,7 +22,7 @@ type Publication = {
   epoch: number;
   revision?: string;
   blocked: boolean;
-  mutation?: object;
+  mutation?: { invalidatesAuthority: boolean; receipt?: DevicePairingCommitReceipt };
   complete: boolean;
   rows: Map<string, DevicePairingBindingFact>;
   nodes?: DevicePairingNodeSnapshot;
@@ -176,10 +176,17 @@ export function captureDevicePairingPublication(admission: OpenClawStateDatabase
     },
     beginMutation(invalidatesAuthority: boolean) {
       captured.epoch++;
-      captured.blocked ||= invalidatesAuthority;
-      const mutation = {};
+      const mutation: NonNullable<Publication["mutation"]> = { invalidatesAuthority };
       captured.mutation = mutation;
       return {
+        prepare(receipt: DevicePairingCommitReceipt) {
+          if (publications.get(path) !== captured || captured.mutation !== mutation) {
+            throw new Error("Pairing commit publication was replaced");
+          }
+          // Fence the transaction's exact next credential before COMMIT is granted.
+          // Reconnect metadata and unrelated writes must not revoke accepted runs.
+          mutation.receipt = receipt;
+        },
         publish(receipt: DevicePairingCommitReceipt) {
           if (publications.get(path) !== captured || captured.mutation !== mutation) {
             return;
@@ -207,6 +214,9 @@ export function captureDevicePairingPublication(admission: OpenClawStateDatabase
           if (settled && captured.mutation === mutation) {
             captured.mutation = undefined;
             captured.epoch++;
+          } else if (!settled && captured.mutation === mutation) {
+            captured.blocked = true;
+            notifyPairingSources(captured);
           }
         },
       };
@@ -233,6 +243,7 @@ export function getPublishedPairedDeviceBinding(
   if (
     !publication ||
     publication.blocked ||
+    publication.mutation?.invalidatesAuthority ||
     (!publication.complete && !publication.rows.has(deviceId))
   ) {
     throw new Error("Device pairing authority requires a current worker publication");
@@ -262,13 +273,16 @@ export function capturePublishedOperatorDeviceSource(
     for (const service of publication.pending) {
       service();
     }
-    const binding = publication.rows.get(expected.deviceId)?.operatorBinding;
-    // The owner blocks authority-changing writes. Node runtime facts preserve
-    // the token and must not interrupt accepted operator work.
+    const receipt = publication.mutation?.receipt;
+    const prospective = receipt?.changed.find((row) => row.deviceId === expected.deviceId);
+    const binding = prospective
+      ? prospective.operatorBinding
+      : publication.rows.get(expected.deviceId)?.operatorBinding;
     if (
       released ||
       publications.get(path) !== publication ||
       publication.blocked ||
+      (receipt && receipt.beforeRevision !== publication.revision) ||
       !binding ||
       binding.identity !== expected.key ||
       !roleScopesAllow({ role: "operator", requestedScopes, allowedScopes: binding.scopes })

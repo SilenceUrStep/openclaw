@@ -25,7 +25,11 @@ import {
 } from "./device-pairing-publication.js";
 import { readDevicePairingNodeSnapshot } from "./device-pairing-store-readonly.js";
 import { persistDevicePairingStoreState } from "./device-pairing-store.js";
-import { revokeDeviceToken } from "./device-pairing-tokens.js";
+import {
+  ensureDeviceToken,
+  revokeDeviceToken,
+  verifyDeviceToken,
+} from "./device-pairing-tokens.js";
 import { withCurrentDevicePairingSnapshot } from "./device-pairing-worker.js";
 import {
   getPairedDevice,
@@ -95,6 +99,69 @@ test("keeps committed node bindings across bootstrap writes and caller-owned row
   copy.identity = "caller-edit";
   expect(getPublishedPairedDeviceBinding("node", baseDir)).toEqual(binding);
 });
+
+test.each(["verification", "token reuse", "bootstrap issuance"] as const)(
+  "keeps accepted operator work current while %s is awaiting worker dispatch",
+  async (change) => {
+    const device = expectDefined(await getPairedDevice("node", baseDir), "paired device");
+    device.roles = ["node", "operator"];
+    device.approvedScopes = ["operator.admin"];
+    expectDefined(device.tokens, "device tokens").operator = {
+      token: "synthetic-operator-token",
+      role: "operator",
+      scopes: ["operator.admin"],
+      createdAtMs: 1,
+    };
+    persistDevicePairingStoreState(
+      { pendingById: {}, pairedByDeviceId: { node: device } },
+      baseDir,
+      "paired",
+    );
+    const paired = expectDefined(await getPairedDevice("node", baseDir), "published device");
+    const revoked = vi.fn();
+    const source = capturePublishedOperatorDeviceSource(
+      expectDefined(resolvePairedDeviceTokenIdentity(paired, "operator"), "operator identity"),
+      ["operator.read"],
+      revoked,
+      baseDir,
+    );
+    const entered = createDeferredCore();
+    const release = createDeferredCore();
+    const run = stateWorker.runOpenClawStateWorkerOperation;
+    const writer = vi
+      .spyOn(stateWorker, "runOpenClawStateWorkerOperation")
+      .mockImplementationOnce(async (...args) => {
+        entered.resolve();
+        await release.promise;
+        return run(...args);
+      });
+    const token = {
+      deviceId: "node",
+      role: "operator",
+      scopes: ["operator.read"],
+      baseDir,
+    };
+    const mutation =
+      change === "verification"
+        ? verifyDeviceToken({ ...token, token: "synthetic-operator-token" })
+        : change === "token reuse"
+          ? ensureDeviceToken(token)
+          : issueDeviceBootstrapToken({ baseDir });
+    try {
+      await awaitGateBeforeSettlement(entered.promise, mutation, "worker dispatch was not held");
+      expect(source.assertCurrent).not.toThrow();
+      release.resolve();
+      await mutation;
+      expect(source.assertCurrent).not.toThrow();
+      expect(revoked).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+      await Promise.allSettled([mutation]);
+      writer.mockRestore();
+      source.release();
+    }
+  },
+);
 
 test.each([
   "session-host consent",
