@@ -8,7 +8,7 @@ import { sessionChanges } from "../sessions/session-row-changes.js";
 export function watchAgentDatabaseExecutionConfig(
   agentId: string,
   env: NodeJS.ProcessEnv,
-  retire: (reason: "removed" | "relocated") => void,
+  retire: () => void,
 ): () => void {
   const config = getRuntimeConfigSnapshot();
   if (!config || !listAgentIds(config).includes(agentId)) {
@@ -21,16 +21,13 @@ export function watchAgentDatabaseExecutionConfig(
       return;
     }
     const current = getRuntimeConfigSnapshot();
-    if (!current) {
-      return;
-    }
-    if (!listAgentIds(current).includes(agentId)) {
-      retire("removed");
-    } else if (
-      resolveEffectiveAgentDir(current, agentId, { env }) !== agentDir ||
-      resolveSessionStorePathCore(current.session?.store, { agentId, env }) !== storePath
+    if (
+      current &&
+      (!listAgentIds(current).includes(agentId) ||
+        resolveEffectiveAgentDir(current, agentId, { env }) !== agentDir ||
+        resolveSessionStorePathCore(current.session?.store, { agentId, env }) !== storePath)
     ) {
-      retire("relocated");
+      retire();
     }
   });
 }
