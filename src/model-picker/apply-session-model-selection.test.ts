@@ -528,7 +528,9 @@ describe("applySessionModelSelection", () => {
         concurrent: createEntry({ sessionId: "session-2" }),
         outcome: { status: "conflict" },
       },
-    ].flatMap((testCase) => ["metadata", "placement"].map((phase) => ({ ...testCase, phase }))),
+    ].flatMap(({ name, concurrent, outcome }) =>
+      ["metadata", "placement"].map((phase) => ({ name, concurrent, outcome, phase })),
+    ),
   )(
     "preserves an in-memory session $name during $phase preparation",
     async ({ concurrent, outcome, phase }) => {
