@@ -331,6 +331,8 @@ async function prepareSimpleCompletionModelCore(
       error: `Auth lookup failed for provider "${initialModel.provider}": ${formatErrorMessage(err)}`,
     };
   }
+  assertCurrent?.();
+  params.signal?.throwIfAborted();
   const rawApiKey = auth.apiKey?.trim();
   if (!rawApiKey && !params.allowMissingApiKeyModes?.includes(auth.mode)) {
     return {
@@ -341,25 +343,29 @@ async function prepareSimpleCompletionModelCore(
 
   let authValue = rawApiKey;
   if (rawApiKey) {
-    const preparedAuth = protectPreparedProviderRuntimeAuth({
+    const runtimeAuth = await prepareProviderRuntimeAuth({
       provider: resolvedModel.provider,
-      preparedAuth: await prepareProviderRuntimeAuth({
-        provider: resolvedModel.provider,
+      config: params.cfg,
+      workspaceDir,
+      env: process.env,
+      assertCurrent,
+      context: {
         config: params.cfg,
         workspaceDir,
         env: process.env,
-        context: {
-          config: params.cfg,
-          workspaceDir,
-          env: process.env,
-          provider: resolvedModel.provider,
-          modelId: resolvedModel.id,
-          model: resolvedModel,
-          apiKey: rawApiKey,
-          authMode: auth.mode,
-          profileId: auth.profileId,
-        },
-      }),
+        provider: resolvedModel.provider,
+        modelId: resolvedModel.id,
+        model: resolvedModel,
+        apiKey: rawApiKey,
+        authMode: auth.mode,
+        profileId: auth.profileId,
+      },
+    });
+    assertCurrent?.();
+    params.signal?.throwIfAborted();
+    const preparedAuth = protectPreparedProviderRuntimeAuth({
+      provider: resolvedModel.provider,
+      preparedAuth: runtimeAuth,
     });
     authValue = preparedAuth?.apiKey?.trim() || rawApiKey;
     resolved.authStorage.setRuntimeApiKey(resolvedModel.provider, authValue);
