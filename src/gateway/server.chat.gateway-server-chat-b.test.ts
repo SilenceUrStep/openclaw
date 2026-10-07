@@ -5630,7 +5630,7 @@ describe("gateway server chat", () => {
     });
   });
 
-  test("chat.history advances past a replay boundary that cannot fit all projected siblings", async () => {
+  test("chat.history advances past an oversized projected source row", async () => {
     await withGatewayChatHarness(async ({ ws, createSessionDir }) => {
       await prepareMainHistoryHarness({ ws, createSessionDir });
       const projectedSiblingCount = 70;
@@ -5662,7 +5662,7 @@ describe("gateway server chat", () => {
         ]);
 
         type HistoryPage = {
-          messages?: Array<{ __openclaw?: { seq?: number } }>;
+          messages?: Array<{ __openclaw?: { seq?: number; truncated?: boolean } }>;
           nextOffset?: number;
           hasMore?: boolean;
         };
@@ -5670,15 +5670,15 @@ describe("gateway server chat", () => {
           ws,
           "chat.history",
           makeMainSessionParams({
-            limit: projectedSiblingCount + 1,
+            limit: projectedSiblingCount,
             offset: 0,
             maxChars: 100_000,
           }),
         );
         expect(firstPage.ok).toBe(true);
-        const firstPageSequences = firstPage.payload?.messages?.map(readOpenClawSeq) ?? [];
-        expect(firstPageSequences.length).toBeGreaterThan(0);
-        expect(firstPageSequences.every((seq) => seq === 2)).toBe(true);
+        const firstMessages = firstPage.payload?.messages;
+        expect(firstMessages).toHaveLength(1);
+        expect(firstMessages?.[0]).toMatchObject({ __openclaw: { seq: 2, truncated: true } });
         expect(firstPage.payload?.hasMore).toBe(true);
         expect(firstPage.payload?.nextOffset).toBeGreaterThan(0);
         expect(

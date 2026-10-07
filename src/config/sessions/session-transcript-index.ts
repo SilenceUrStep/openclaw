@@ -158,38 +158,39 @@ function readSessionTranscriptProjectionState(
   };
 }
 
-function readSessionTranscriptIndexStatus(db: DatabaseSync, sessionId: string) {
+/** The projection owner supplies the same readiness predicate to compound readers. */
+export function selectSessionTranscriptIndexStatus(db: DatabaseSync, sessionId: string) {
   const kysely = getIndexKysely(db);
+  return kysely
+    .selectFrom(
+      kysely
+        .selectFrom("transcript_events")
+        .select("seq")
+        .where("session_id", "=", sessionId)
+        .orderBy("seq", "desc")
+        .limit(1)
+        .as("latest"),
+    )
+    .leftJoin(selectSessionTranscriptProjectionState(db, sessionId).as("state"), (join) =>
+      join.onTrue(),
+    )
+    .select((eb) =>
+      eb
+        .or([
+          eb("state.needs_rebuild", "is not", 0),
+          eb("state.indexed_seq", "is not", eb.ref("latest.seq")),
+          eb("state.has_unclassified", "=", 1),
+        ])
+        .as("needs_reconcile"),
+    );
+}
+
+function readSessionTranscriptIndexStatus(db: DatabaseSync, sessionId: string) {
   const row = executeSqliteQueryTakeFirstSync(
     db,
-    kysely
-      .selectFrom(
-        kysely
-          .selectFrom("transcript_events")
-          .select("seq")
-          .where("session_id", "=", sessionId)
-          .orderBy("seq", "desc")
-          .limit(1)
-          .as("latest"),
-      )
-      .leftJoin(selectSessionTranscriptProjectionState(db, sessionId).as("state"), (join) =>
-        join.onTrue(),
-      )
-      .select([
-        "latest.seq as latest_seq",
-        "state.indexed_seq",
-        "state.needs_rebuild",
-        "state.has_unclassified",
-      ]),
+    selectSessionTranscriptIndexStatus(db, sessionId),
   );
-  return row
-    ? {
-        needsReconcile:
-          row.needs_rebuild !== 0 ||
-          row.indexed_seq !== row.latest_seq ||
-          Boolean(row.has_unclassified),
-      }
-    : undefined;
+  return row ? { needsReconcile: Boolean(row.needs_reconcile) } : undefined;
 }
 
 export function sessionTranscriptIndexNeedsReconcile(db: DatabaseSync, sessionId: string): boolean {

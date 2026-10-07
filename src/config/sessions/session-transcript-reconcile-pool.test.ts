@@ -256,25 +256,24 @@ it.each(["complete", "native-exit"] as const)(
         activeTasks: 0,
         pendingTasks: 0,
       });
-      const retainedCanonicalLeases: string[] = [];
       for (const options of targets.slice(0, 2)) {
         const database = openOpenClawAgentDatabase(options);
         const actual = readAgentDatabaseLeaseIds(database.path, env);
-        const canonicalId = canonical.leases.get(database.path);
+        const canonicalId = expectDefined(canonical.leases.get(database.path), "canonical lease");
         const plannerId = plannerLeases.get(database.path);
         expect(canonicalId).toEqual(expect.any(String));
         expect(plannerId).toEqual(expect.any(String));
         expect(canonicalId).not.toBe(plannerId);
         expect(actual).not.toContain(plannerId);
-        const retained = actual.filter((id) => id === canonicalId);
-        retainedCanonicalLeases.push(...retained);
-        expect(actual).toEqual([...nativeLeases.get(database.path)!, ...retained].toSorted());
+        expect(actual).toEqual(
+          [...nativeLeases.get(database.path)!, canonicalId].toSorted((left, right) =>
+            left.localeCompare(right),
+          ),
+        );
         expect(
           database.db.prepare("SELECT message_id, text FROM session_transcript_fts").all(),
         ).toEqual([{ message_id: options.agentId, text: options.agentId }]);
       }
-      // The canonical executor retains one idle generation across both completed owners.
-      expect(retainedCanonicalLeases).toHaveLength(1);
       const late = vi.fn(async () => undefined);
       for (const captured of [generation, duringClose]) {
         await expect(

@@ -295,3 +295,40 @@ it("revokes agent removal while a changed storage path is still borrowed", async
   await execution.release();
   expect(closedAgents()).toEqual(["first"]);
 });
+
+it("readmits a captured store after its relocated idle generation finishes closing", async () => {
+  setRuntimeConfigSnapshot({ agents: { entries: { first: {} } } });
+  const original = await use("first");
+  const first = opened[0];
+  assert(first);
+  const closing = createDeferredCore();
+  first.close.mockImplementationOnce(() => closing.promise);
+  let borrowed: ReturnType<typeof capture> | undefined;
+  try {
+    setRuntimeConfigSnapshot({
+      agents: { entries: { first: {} } },
+      session: { store: path.join(env.OPENCLAW_STATE_DIR!, "relocated", "{agentId}.sqlite") },
+    });
+    const next = captureOpenClawAgentDatabaseExecution({
+      agentId: "first",
+      env,
+      path: original.path,
+    });
+    borrowed = next;
+    let prepared = false;
+    const preparing = next.prepare(source).then(() => {
+      prepared = true;
+    });
+    await Promise.resolve();
+    expect(prepared).toBe(false);
+    expect(opened).toHaveLength(1);
+    closing.resolve();
+    await preparing;
+    expect(opened).toHaveLength(2);
+    expect(() => next.assertCurrent()).not.toThrow();
+  } finally {
+    closing.resolve();
+    await borrowed?.release();
+  }
+  expect(closedAgents()).toEqual(["first", "first"]);
+});

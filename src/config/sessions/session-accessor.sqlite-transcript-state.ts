@@ -19,7 +19,6 @@ import {
 import { certifyCanonicalSessionValidationRow } from "./session-canonical-validation.js";
 import {
   assertSessionTranscriptHot,
-  readSessionColdTranscript,
   SessionTranscriptColdError,
 } from "./session-cold-storage-state.js";
 import {
@@ -36,7 +35,19 @@ const transcriptContextVersionQuery = createSqliteQueryCache((database) => {
       db
         .selectFrom("transcript_events")
         .select((eb) => [
-          eb.fn.max<number | null>("seq").as("rawSeq"),
+          eb.fn
+            .coalesce(
+              eb
+                .selectFrom("session_transcript_cold_archives")
+                .select("last_seq")
+                .where(
+                  "session_id",
+                  "=",
+                  parameter((sessionId) => sessionId),
+                ),
+              eb.fn.max<number | null>("seq"),
+            )
+            .as("rawSeq"),
           eb
             .selectFrom("transcript_rewrite_watermarks")
             .select("generation")
@@ -68,9 +79,7 @@ export function readTranscriptContextVersionInTransaction(
   database: Pick<OpenClawAgentDatabase, "db">,
   sessionId: string,
 ) {
-  const cold = readSessionColdTranscript(database.db, sessionId);
-  const version = transcriptContextVersionQuery(database.db)(sessionId)!;
-  return cold ? { ...version, rawSeq: cold.last_seq } : version;
+  return transcriptContextVersionQuery(database.db)(sessionId)!;
 }
 
 function createTranscriptGeneration(): string {
@@ -140,18 +149,6 @@ export function ensureTranscriptSessionRoot(
   let nodeExists = false;
   if (!options.allowStoredAlias) {
     assertCanonicalSqliteSessionRootWrite(database, scope.sessionKey);
-    const persistedSessionKey = executeSqliteQueryTakeFirstSync(
-      database.db,
-      db
-        .selectFrom("session_windows")
-        .select("session_key")
-        .where("session_id", "=", scope.sessionId),
-    )?.session_key;
-    if (persistedSessionKey && persistedSessionKey !== scope.sessionKey) {
-      throw new Error(
-        `Transcript session ${scope.sessionId} is owned by ${persistedSessionKey}, not ${scope.sessionKey}; resolve the transcript target again before retrying.`,
-      );
-    }
     const lookupKeys = uniqueStrings([
       scope.sessionKey,
       ...foldedSessionKeyAliasCandidates(normalizeStoreSessionKey(scope.sessionKey)),
@@ -162,8 +159,31 @@ export function ensureTranscriptSessionRoot(
         .selectFrom("session_nodes")
         .select(["current_session_id", "entry_valid", "session_key", "updated_at"])
         .select("entry_json")
+        .select((eb) =>
+          eb
+            .selectFrom("session_windows")
+            .select("session_key")
+            .where("session_id", "=", scope.sessionId)
+            .as("persisted_session_key"),
+        )
         .where("session_key", "in", lookupKeys),
     ).rows;
+    // A retained window can outlive its node, so the empty-candidate case still reads its owner.
+    const persistedSessionKey =
+      candidates.length > 0
+        ? candidates[0]!.persisted_session_key
+        : executeSqliteQueryTakeFirstSync(
+            database.db,
+            db
+              .selectFrom("session_windows")
+              .select("session_key")
+              .where("session_id", "=", scope.sessionId),
+          )?.session_key;
+    if (persistedSessionKey && persistedSessionKey !== scope.sessionKey) {
+      throw new Error(
+        `Transcript session ${scope.sessionId} is owned by ${persistedSessionKey}, not ${scope.sessionKey}; resolve the transcript target again before retrying.`,
+      );
+    }
     let retainedRoot = false;
     for (const candidate of candidates) {
       const entry = parseSessionEntryJson(candidate, "list");

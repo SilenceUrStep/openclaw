@@ -558,7 +558,7 @@ function createAgentDatabaseExecution(
             }
             borrowers -= 1;
             if (borrowers === 0 && discardOnRelease && !cleanupFailure) {
-              await owner.close().catch(reportCleanupFailure);
+              await owner.closeIdle().catch(reportCleanupFailure);
               return;
             }
             if (borrowers !== 0 || retired || cleanupFailure) {
@@ -581,7 +581,7 @@ function createAgentDatabaseExecution(
               reportCleanupFailure(error);
             }
             if (borrowers === 0 && discardOnRelease && !cleanupFailure) {
-              await owner.close().catch(reportCleanupFailure);
+              await owner.closeIdle().catch(reportCleanupFailure);
               return;
             }
             if (borrowers !== 0 || retired || cleanupFailure || executionState.idle.has(owner)) {
@@ -678,14 +678,14 @@ function createAgentDatabaseExecution(
     unregisterConfig = watchAgentDatabaseExecutionConfig(agentId, context.environment, (reason) => {
       if (reason === "removed") {
         revoke();
-      } else {
-        // Captured physical stores stay valid through settlement, but never return to the cache.
-        discardOnRelease = true;
-        if (borrowers !== 0) {
-          return;
-        }
+        void owner.close().catch(reportCleanupFailure);
+        return;
       }
-      void owner.close().catch(reportCleanupFailure);
+      // Captured stores may reborrow while the old generation drains; none return to the cache.
+      discardOnRelease = true;
+      if (borrowers === 0) {
+        void owner.closeIdle().catch(reportCleanupFailure);
+      }
     });
     unregisterShared = registerOpenClawStateDatabaseAsyncResource({
       close: async (sharedIdentity) => {

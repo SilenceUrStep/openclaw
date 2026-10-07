@@ -314,8 +314,8 @@ describe("session transcript reconcile worker lifecycle", () => {
         hostLeases.toSorted(),
       );
       const idleLeases = retainedLeases.filter((lease) => !hostLeases.includes(lease));
-      expect(idleLeases).toHaveLength(1);
-      expect([...canonical.leases.values()]).toContain(idleLeases[0]);
+      expect(idleLeases).toHaveLength(4);
+      expect([...canonical.leases.values()]).toEqual(expect.arrayContaining(idleLeases));
     } finally {
       operationSpy.mockRestore();
       canonical.restore();
