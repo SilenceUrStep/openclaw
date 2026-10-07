@@ -11,7 +11,7 @@ import {
   withPluginMetadataSnapshotScope,
 } from "../plugins/current-plugin-metadata-snapshot.js";
 import { resolveInstalledPluginIndexPolicyHash } from "../plugins/installed-plugin-index-policy.js";
-import { writePersistedInstalledPluginIndexWithLeaseSync } from "../plugins/installed-plugin-index-store-write.js";
+import { writePersistedInstalledPluginIndex } from "../plugins/installed-plugin-index-store-write.js";
 import { readPersistedInstalledPluginIndexSync } from "../plugins/installed-plugin-index-store.js";
 import {
   createPluginCache,
@@ -419,17 +419,9 @@ describe("startup plugin metadata admission", () => {
         expect(initial.snapshot.valid).toBe(true);
         expect(initial.pluginMetadataSnapshot?.registrySource).toBe("derived");
         expect(readBundledDiscoveryModeMemoized()).toBeUndefined();
-        const lease = await migrationCheckpoint.acquireStartupMigrationLeaseWithWait({
-          timeoutMs: 0,
+        await writePersistedInstalledPluginIndex(initial.pluginMetadataSnapshot!.index, {
+          env: process.env,
         });
-        try {
-          writePersistedInstalledPluginIndexWithLeaseSync(initial.pluginMetadataSnapshot!.index, {
-            env: process.env,
-            lease,
-          });
-        } finally {
-          lease.release();
-        }
         const policyHash = resolveInstalledPluginIndexPolicyHash(config, process.env);
         await writeVersion("2.0.0");
         const result = await runStartupConfigPreflight({ gateway: true, observe: false });

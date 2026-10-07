@@ -67,7 +67,11 @@ export async function runGatewayPostReadyStartupMaintenance(params: {
             import("../plugins/registry-refresh.js"),
           ]);
         await withPluginLifecycleLease(
-          { signal: params.signal, assertCurrent: () => params.signal.throwIfAborted() },
+          {
+            signal: params.signal,
+            assertCurrent: () => params.signal.throwIfAborted(),
+            processBound: true,
+          },
           (lease) =>
             refreshPluginRegistryAfterConfigMutation({
               reason: "source-changed",

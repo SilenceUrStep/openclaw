@@ -91,7 +91,7 @@ openclaw plugins registry --json
 
 The local plugin registry is OpenClaw's persisted cold read model for installed plugin identity, enablement, source metadata, and contribution ownership. Normal startup, provider owner lookup, channel setup classification, and plugin inventory can read it without importing plugin runtime modules.
 
-When that registry is missing or stale, Gateway startup validates current plugin metadata and serves from that prepared snapshot. After readiness, maintenance refreshes the persisted registry under the plugin lifecycle lease using current config and package facts. Refresh failures produce warnings without replacing the active runtime snapshot. Config recovery and database compatibility checks remain startup gates; updates retain those checks.
+When that registry is missing or stale, Gateway startup validates current plugin metadata and serves from that prepared snapshot. After readiness, maintenance refreshes the persisted registry in the shared-state worker under the plugin lifecycle lease using current config and package facts. This retains metadata for later updates without blocking request handling on a SQLite write. Refresh failures produce warnings without replacing the active runtime snapshot. Config recovery and database compatibility checks remain startup gates; updates retain those checks.
 
 Use `plugins registry` to inspect whether the persisted registry is present, current, or stale. Use `--refresh` to rebuild it from the persisted plugin index, config policy, and manifest/package metadata. This is a repair path, not a runtime activation path.
 

@@ -69,6 +69,7 @@ describe("Doctor plugin index persistence built CLI proof", () => {
       name: "doctor-plugin-index-persistence",
       env: {
         OPENCLAW_TEST_FAST: "1",
+        OPENCLAW_TEST_MINIMAL_GATEWAY: undefined,
       },
       startTimeoutMs: 90_000,
     });
@@ -154,9 +155,9 @@ describe("Doctor plugin index persistence built CLI proof", () => {
       };
       const aborted = () => {
         cleanup();
-        reject(signal.reason);
+        reject(new Error("Registry maintenance aborted", { cause: signal.reason }));
       };
-      function check() {
+      const check = () => {
         if (
           /startup (?:phase|trace): startup\.maintenance\.plugin-registry [\d.]+ms total=/u.test(
             instance.logs(),
@@ -169,7 +170,7 @@ describe("Doctor plugin index persistence built CLI proof", () => {
         } else if (signal.aborted) {
           aborted();
         }
-      }
+      };
       child.stdout.on("data", check);
       child.stderr.on("data", check);
       child.once("close", closed);

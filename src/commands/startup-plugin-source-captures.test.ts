@@ -19,7 +19,8 @@ const mocks = vi.hoisted(() => ({
   preserving: false,
 }));
 
-vi.mock("./config-preflight-snapshot.js", () => ({
+vi.mock("./config-preflight-snapshot.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./config-preflight-snapshot.js")>()),
   readConfigPreflightSnapshot: mocks.read,
   readAdmittedConfigSnapshot: mocks.read,
   assertPreflightConfigUnchanged: vi.fn(),

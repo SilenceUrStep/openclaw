@@ -177,7 +177,8 @@ vi.mock("../plugins/plugin-lookup-table.js", () => ({
 
 vi.mock("../plugins/registry.js", () => import("../plugins/registry-empty.js"));
 
-vi.mock("../plugins/registry-refresh.js", () => ({
+vi.mock("../plugins/registry-refresh.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../plugins/registry-refresh.js")>()),
   refreshPluginRegistryAfterConfigMutation,
 }));
 
@@ -260,8 +261,8 @@ describe("runGatewayPostReadyStartupMaintenance", () => {
   it("joins admitted registry refresh when the Gateway closes during maintenance", async () => {
     await withOpenClawTestState({ label: "startup-registry-maintenance" }, async () => {
       const { runGatewayPostReadyStartupMaintenance } = await import("./server-startup-plugins.js");
-      const started = createDeferred<void>();
-      const release = createDeferred<void>();
+      const started = createDeferred();
+      const release = createDeferred();
       const controller = new AbortController();
       refreshPluginRegistryAfterConfigMutation.mockImplementationOnce(async () => {
         started.resolve();
