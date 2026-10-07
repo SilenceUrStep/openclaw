@@ -9,9 +9,8 @@ import {
   type SqliteIntegrityOperation,
 } from "./sqlite-integrity.js";
 import { runSqlitePinnedReadSnapshotSync } from "./sqlite-pinned-read-snapshot.js";
-import type { SqliteIndexListRow } from "./sqlite-schema-contract-assembly.js";
 import {
-  collectSqliteIndexContract,
+  createSqliteTableContractReader,
   getCanonicalSqliteNamedIndexContracts,
   getCanonicalSqliteTableNames,
   type CanonicalSqliteNamedIndexContract,
@@ -97,29 +96,25 @@ export function repairCanonicalSqliteIndexes(
     indexesByTable.set(index.tableName, tableIndexes);
   }
   const repairIndexes = new Set<CanonicalSqliteNamedIndexContract>();
-  // One read snapshot also avoids a network lock round trip per metadata query.
+  // Batch catalog inspection within one snapshot, including absent canonical tables.
   runSqlitePinnedReadSnapshotSync(db, () => {
+    // Preserve catalog authorization even for an empty database.
+    db.prepare("SELECT sql, tbl_name FROM main.sqlite_schema LIMIT 0").all();
+    const readTable = createSqliteTableContractReader(db);
     for (const tableName of getCanonicalSqliteTableNames(schemaSql)) {
       assertSqliteIdentifier(tableName);
-      // Authorize catalog columns even when every expected index is absent, without loading DDL.
-      const tableExists = db
-        .prepare(`
-          SELECT 1 FROM (
-            SELECT sql, tbl_name FROM main.sqlite_schema WHERE type = 'table' AND name = ?
-          )
-        `)
-        .get(tableName);
-      if (!tableExists) {
+      const table = readTable(tableName);
+      if (!table) {
         continue;
       }
       const tableIndexes = indexesByTable.get(tableName) ?? [];
       const canonicalIndexNames = new Set(tableIndexes.map((index) => index.name));
-      const actualIndexes = db
-        .prepare(`PRAGMA main.index_list(${tableName})`)
-        .all() as SqliteIndexListRow[];
+      const actualIndexes = table.indexes;
       const unexpected = actualIndexes.find(
         (index) =>
-          index.unique === 1 && index.origin === "c" && !canonicalIndexNames.has(index.name),
+          index.unique === 1 &&
+          index.origin === "c" &&
+          (index.name === null || !canonicalIndexNames.has(index.name)),
       );
       if (unexpected) {
         throw new Error(
@@ -127,8 +122,7 @@ export function repairCanonicalSqliteIndexes(
         );
       }
       for (const index of tableIndexes) {
-        const row = actualIndexes.find((candidate) => candidate.name === index.name);
-        const actual = row ? collectSqliteIndexContract(db, row) : undefined;
+        const actual = actualIndexes.find((candidate) => candidate.name === index.name);
         if (JSON.stringify(actual) !== JSON.stringify(index.fingerprint)) {
           repairIndexes.add(index);
         }

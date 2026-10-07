@@ -144,48 +144,39 @@ describe("repairCanonicalSqliteIndexes", () => {
   it.each([
     ["shared-table fixture", CANONICAL_SCHEMA],
     ["agent schema", OPENCLAW_AGENT_SCHEMA_SQL],
-  ])("inspects canonical indexes once per table without rewriting them: %s", (_name, schema) => {
-    const db = new DatabaseSync(":memory:");
-    try {
-      db.exec(schema);
-      const before = db.prepare("PRAGMA schema_version").get();
-      const tables = db
-        .prepare(
-          "SELECT name FROM main.sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-        )
-        .all();
-      const indexes = db
-        .prepare("SELECT sql FROM main.sqlite_schema WHERE type = 'index' AND sql IS NOT NULL")
-        .all();
-      const indexSqlBytes = indexes.reduce((sum, row) => {
-        if (typeof row.sql !== "string") {
-          throw new Error("Expected fixture index DDL");
-        }
-        return sum + Buffer.byteLength(row.sql, "utf8");
-      }, 0);
-      const traced = tracePreparedSql(db);
+  ])(
+    "inspects canonical indexes with bounded catalog work without rewriting them: %s",
+    (_name, schema) => {
+      const db = new DatabaseSync(":memory:");
+      try {
+        db.exec(schema);
+        const before = db.prepare("PRAGMA schema_version").get();
+        const indexes = db
+          .prepare("SELECT sql FROM main.sqlite_schema WHERE type = 'index' AND sql IS NOT NULL")
+          .all();
+        const indexSqlBytes = indexes.reduce((sum, row) => {
+          if (typeof row.sql !== "string") {
+            throw new Error("Expected fixture index DDL");
+          }
+          return sum + Buffer.byteLength(row.sql, "utf8");
+        }, 0);
+        const traced = tracePreparedSql(db);
 
-      expect(
-        repairCanonicalSqliteIndexes(traced.database, "test database", schema, {
-          verifyPhysicalIntegrity: false,
-        }),
-      ).toEqual([]);
+        expect(
+          repairCanonicalSqliteIndexes(traced.database, "test database", schema, {
+            verifyPhysicalIntegrity: false,
+          }),
+        ).toEqual([]);
 
-      expect(db.prepare("PRAGMA schema_version").get()).toEqual(before);
-      expect(traced.materializedIndexSqlBytes).toBeLessThanOrEqual(indexSqlBytes);
-      // One snapshot, two reads per table, and two fingerprint reads per explicit index.
-      expect(traced.statements).toHaveLength(1 + 2 * tables.length + 2 * indexes.length);
-      const indexLists = traced.statements.filter((sql) => /PRAGMA main\.index_list\(/u.test(sql));
-      expect(indexLists).toHaveLength(tables.length);
-      expect(new Set(indexLists).size).toBe(tables.length);
-      expect(traced.statements.filter((sql) => /WHERE type = 'table'/u.test(sql))).toHaveLength(
-        tables.length,
-      );
-      expect(traced.statements.some((sql) => /SELECT tbl_name FROM/u.test(sql))).toBe(false);
-    } finally {
-      db.close();
-    }
-  });
+        expect(db.prepare("PRAGMA schema_version").get()).toEqual(before);
+        expect(traced.materializedIndexSqlBytes).toBeLessThanOrEqual(indexSqlBytes);
+        // The catalog snapshot cost stays bounded for both a small fixture and the full agent schema.
+        expect(traced.statements.length).toBeLessThanOrEqual(7);
+      } finally {
+        db.close();
+      }
+    },
+  );
 
   it.each([
     [
@@ -443,12 +434,20 @@ describe("repairCanonicalSqliteIndexes", () => {
     }
   });
 
-  it.each(["sql", "tbl_name"])(
-    "preserves %s authorization errors when all expected indexes are absent",
-    (deniedColumn) => {
+  it.each([
+    { deniedColumn: "sql", empty: false },
+    { deniedColumn: "tbl_name", empty: false },
+    { deniedColumn: "sql", empty: true },
+    { deniedColumn: "tbl_name", empty: true },
+  ])(
+    "preserves $deniedColumn authorization errors with absent indexes (empty=$empty)",
+    ({ deniedColumn, empty }) => {
       const db = createDatabase();
       try {
         db.exec("DROP INDEX idx_records_identity; DROP INDEX idx_records_active_lookup;");
+        if (empty) {
+          db.exec("DROP TABLE records; DROP TABLE unindexed;");
+        }
         db.setAuthorizer((action, table, column, schema) => {
           if (
             action === constants.SQLITE_READ &&
@@ -507,30 +506,38 @@ describe("repairCanonicalSqliteIndexes", () => {
     }
   });
 
-  it("repairs only the main schema when a temporary index has the same name", () => {
-    const db = createDatabase();
-    try {
-      db.exec(`
+  it.each(["", "CREATE TEMP VIEW pragma_index_xinfo AS SELECT 1 AS id;"])(
+    "repairs only main with a same-name temporary index and PRAGMA shadow %s",
+    (shadow) => {
+      const db = createDatabase();
+      try {
+        db.exec(`
         CREATE TEMP TABLE temp_records (id INTEGER PRIMARY KEY);
         CREATE UNIQUE INDEX temp.idx_records_identity ON temp_records(id);
         DROP INDEX main.idx_records_identity;
         CREATE UNIQUE INDEX main.idx_records_identity ON records(id);
+        ${shadow}
       `);
 
-      repairCanonicalSqliteIndexes(db, "test database", CANONICAL_SCHEMA);
+        repairCanonicalSqliteIndexes(db, "test database", CANONICAL_SCHEMA);
 
-      expect(
-        db.prepare("SELECT sql FROM main.sqlite_schema WHERE name = 'idx_records_identity'").get(),
-      ).toEqual({
-        sql: expect.stringContaining("tenant_id COLLATE NOCASE"),
-      });
-      expect(
-        db.prepare("SELECT sql FROM temp.sqlite_schema WHERE name = 'idx_records_identity'").get(),
-      ).toEqual({
-        sql: "CREATE UNIQUE INDEX idx_records_identity ON temp_records(id)",
-      });
-    } finally {
-      db.close();
-    }
-  });
+        expect(
+          db
+            .prepare("SELECT sql FROM main.sqlite_schema WHERE name = 'idx_records_identity'")
+            .get(),
+        ).toEqual({
+          sql: expect.stringContaining("tenant_id COLLATE NOCASE"),
+        });
+        expect(
+          db
+            .prepare("SELECT sql FROM temp.sqlite_schema WHERE name = 'idx_records_identity'")
+            .get(),
+        ).toEqual({
+          sql: "CREATE UNIQUE INDEX idx_records_identity ON temp_records(id)",
+        });
+      } finally {
+        db.close();
+      }
+    },
+  );
 });
