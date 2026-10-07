@@ -24,8 +24,11 @@ current-row grant, after asynchronous handoff preparation. Its transaction exclu
 foreign commits until initiation; transport settlement is joined outside the transaction
 and FIFO. Recovery selects the operation receipt and conversation together. Captured
 route fingerprints are comparison inputs, never authority by themselves.
-Directory grants batch the retained native binding inspection within each synchronous
-phase, preserving exact-row and legacy-key selection without reusing rows across waits.
+Directory grants batch native binding inspection within each synchronous phase,
+preserving exact-row and legacy-key selection. Every authority check probes the current
+foreign-commit revision. The binding owner may reuse its bounded row cohort only when
+that revision, schema and local mutation revision still match; expiry is evaluated again.
+Transactions, pinned snapshots and authorizer-controlled reads do not reuse the cohort.
 Address registration prepares one encoded batch before its synchronous write transaction.
 
 Current-conversation binding mutations and bundled session listings use the existing

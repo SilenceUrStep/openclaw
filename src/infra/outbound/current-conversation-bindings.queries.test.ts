@@ -12,6 +12,7 @@ import { executeSqliteQuerySync, getNodeSqliteKysely } from "../kysely-sync.js";
 import { createAccountScopedConversationBindingManager } from "./account-scoped-conversation-bindings.js";
 import {
   deleteCurrentConversationBindingRecordsBySession,
+  inspectCurrentConversationBindingRecords,
   listCurrentConversationBindingRecordsBySession,
   resolveCurrentConversationBindingRecord,
   updateCurrentConversationBindingRecord,
@@ -82,7 +83,9 @@ it("observes another SQLite connection after warm reads and database reopen", as
   await withOpenClawTestState({ label: "binding-query-freshness" }, async () => {
     const original = binding("external");
     writeBinding(original);
-    expect(resolveCurrentConversationBindingRecord(original.conversation)).toEqual(original);
+    const inspect = () => inspectCurrentConversationBindingRecords([original.conversation])[0];
+    expect(inspect()).toEqual(original);
+    expect(inspect()).toEqual(original);
     const owned = openOpenClawStateDatabase();
     const external = new DatabaseSync(owned.path);
     try {
@@ -103,19 +106,68 @@ it("observes another SQLite connection after warm reads and database reopen", as
           })
           .where("binding_id", "=", original.bindingId),
       );
-      expect(resolveCurrentConversationBindingRecord(original.conversation)).toEqual(replacement);
+      expect(inspect()).toEqual(replacement);
       closeOpenClawStateDatabaseForTest();
       expect(openOpenClawStateDatabase().db === owned.db).toBe(false);
-      expect(resolveCurrentConversationBindingRecord(original.conversation)).toEqual(replacement);
+      expect(inspect()).toEqual(replacement);
       executeSqliteQuerySync(
         external,
         sql
           .deleteFrom("current_conversation_bindings")
           .where("binding_id", "=", original.bindingId),
       );
-      expect(resolveCurrentConversationBindingRecord(original.conversation)).toBeNull();
+      expect(inspect()).toBeNull();
     } finally {
       external.close();
+    }
+  });
+});
+
+it("reuses unchanged binding rows while local updates, expiry, and returned objects stay current", async () => {
+  await withOpenClawTestState({ label: "binding-selection-freshness" }, async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100);
+    const original = {
+      ...binding("retained"),
+      expiresAt: 150,
+      metadata: { label: "original" },
+    };
+    const added = binding("missing");
+    writeBinding(original);
+    const { db } = openOpenClawStateDatabase();
+    const executions = trackSqliteStatementExecutions(db, ["selection", "freshness"], (query) =>
+      query === "PRAGMA data_version"
+        ? "freshness"
+        : query.startsWith("with ") && query.includes('"current_conversation_bindings"')
+          ? "selection"
+          : null,
+    );
+    const refs = [original.conversation, added.conversation];
+    const inspect = () => inspectCurrentConversationBindingRecords(refs);
+    try {
+      const selected = inspect();
+      expect(selected).toEqual([original, null]);
+      selected[0]!.targetSessionKey = "agent:other:consumer";
+      selected[0]!.metadata!.label = "consumer";
+      expect(inspect()).toEqual([original, null]);
+      expect(inspect()).toEqual([original, null]);
+      expect(executions.counts.selection).toBe(1);
+      expect(executions.counts.freshness).toBe(3);
+
+      const replacement = { ...original, targetSessionKey: "agent:other:replacement" };
+      writeBinding(replacement);
+      expect(inspect()).toEqual([replacement, null]);
+      writeBinding(added);
+      expect(inspect()).toEqual([replacement, added]);
+      const readsBeforeExpiry = executions.counts.selection;
+      clock.mockReturnValue(150);
+      expect(inspect()).toEqual([null, added]);
+      expect(executions.counts.selection).toBe(readsBeforeExpiry);
+      expect(inspectCurrentConversationBindingRecords([...refs].reverse())).toEqual([added, null]);
+
+      deleteCurrentConversationBindingRecordsBySession(added.targetSessionKey, undefined, false);
+      expect(inspect()).toEqual([null, null]);
+    } finally {
+      executions.restore();
     }
   });
 });

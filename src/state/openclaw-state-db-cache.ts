@@ -354,6 +354,15 @@ function getCachedOpenClawStateDatabase(
   pathname: string,
   options?: { readOnly: true },
 ): OpenClawStateDatabase | undefined {
+  return withCachedOpenClawStateDatabase(pathname, options, (database) => database);
+}
+
+/** Keep the admitted revision live while a synchronous reader consumes its row facts. */
+function withCachedOpenClawStateDatabase<T>(
+  pathname: string,
+  options: { readOnly: true } | undefined,
+  operation: (database: OpenClawStateDatabase) => T,
+): T | undefined {
   const maintenance = getOpenClawDatabaseMaintenanceScope();
   if (options?.readOnly) {
     maintenance?.assertReadAdmission();
@@ -366,16 +375,17 @@ function getCachedOpenClawStateDatabase(
     throw runtimeFailure;
   }
   const database = cachedDatabases.get(path.resolve(pathname));
-  if (database?.db.isOpen && !cacheAdmission.refresh(database)) {
+  if (!database) {
     return undefined;
   }
-  if (database && borrowers.get(database.db)?.retiring) {
-    throw new Error(`OpenClaw state database native borrower cleanup is pending: ${pathname}`);
-  }
-  if (database) {
+  const consume = () => {
+    if (borrowers.get(database.db)?.retiring) {
+      throw new Error(`OpenClaw state database native borrower cleanup is pending: ${pathname}`);
+    }
     touchStateDatabase(database);
-  }
-  return database;
+    return operation(database);
+  };
+  return database.db.isOpen ? cacheAdmission.refresh(database, consume)?.value : consume();
 }
 
 function getOpenClawStateDatabaseIfOpenAtPath(pathname: string): OpenClawStateDatabase | undefined {
@@ -657,6 +667,7 @@ export const openClawStateDatabaseCache = {
   evictCachedOpenClawStateDatabase,
   evictOpenClawStateDatabaseAfterCorruption,
   getCachedOpenClawStateDatabase,
+  withCachedOpenClawStateDatabase,
   getOpenClawStateDatabaseRecordedFailure: terminalOpenLatch.peek,
   getOpenClawStateDatabaseIfOpenAtPath,
   getKnownOpenClawStateDatabaseIdentity: asyncResources.knownIdentity,

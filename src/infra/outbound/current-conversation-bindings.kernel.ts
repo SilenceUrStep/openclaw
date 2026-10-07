@@ -6,6 +6,7 @@ import {
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { isPluginOwnedBindingMetadata } from "../../plugins/conversation-binding-metadata.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../../state/openclaw-state-db.generated.js";
+import { registerNodeSqliteDisposeCallback } from "../kysely-sync-cache-state.js";
 import {
   createSqliteQueryCache,
   getNodeSqliteKysely,
@@ -13,6 +14,10 @@ import {
   encodeSqliteStringSet,
   sqliteStringSetEntries,
 } from "../kysely-sync.js";
+import {
+  getSqliteReadOperationRevision,
+  type SqliteReadOperationRevision,
+} from "../sqlite-schema-facts.js";
 import { runSqliteDeferredTransactionSync } from "../sqlite-transaction.js";
 import type {
   CurrentConversationBindingBind,
@@ -35,6 +40,16 @@ type CurrentConversationBindingRow = Pick<
   CurrentConversationBindingDatabase["current_conversation_bindings"],
   "binding_key" | "binding_id" | "target_session_key" | "record_json"
 >;
+
+const MAX_RETAINED_BINDING_SELECTION = 128;
+const retainedSelections = new WeakMap<
+  DatabaseSync,
+  {
+    revision: SqliteReadOperationRevision;
+    conversations: string;
+    rows: Array<CurrentConversationBindingRow | undefined>;
+  }
+>();
 
 function currentConversationBindingRow(
   record: SessionBindingRecord,
@@ -280,6 +295,24 @@ function readCurrentConversationBindingRows(
   if (conversations.length === 0) {
     return [];
   }
+  const revision =
+    conversations.length <= MAX_RETAINED_BINDING_SELECTION
+      ? getSqliteReadOperationRevision(db)
+      : undefined;
+  const selectionKey = revision
+    ? JSON.stringify(
+        conversations.map((ref) => [
+          ref.channel,
+          ref.accountId,
+          ref.parentConversationId ?? "",
+          ref.conversationId,
+        ]),
+      )
+    : undefined;
+  const retained = retainedSelections.get(db);
+  if (revision && retained?.revision === revision && retained.conversations === selectionKey) {
+    return retained.rows;
+  }
   const selected = new Map<number, CurrentConversationBindingRow>();
   for (const row of getCurrentConversationBindingQueries(db).selection(conversations).rows) {
     if (selected.has(row.request_index)) {
@@ -294,7 +327,19 @@ function readCurrentConversationBindingRows(
       selected.set(row.request_index, row);
     }
   }
-  return conversations.map((_, index) => selected.get(index));
+  const rows = conversations.map((_, index) => selected.get(index));
+  // Each phase still admits a fresh revision. Retain only row bytes, so expiry and
+  // consumer metadata mutations cannot turn an earlier selection into authority.
+  if (revision && selectionKey && getSqliteReadOperationRevision(db) === revision) {
+    if (!retained) {
+      const unregister = registerNodeSqliteDisposeCallback(db, () => {
+        retainedSelections.delete(db);
+        unregister();
+      });
+    }
+    retainedSelections.set(db, { revision, conversations: selectionKey, rows });
+  }
+  return rows;
 }
 
 function readCurrentConversationBinding(db: DatabaseSync, conversation: ConversationRef) {

@@ -48,21 +48,30 @@ export function createStateDatabaseCacheAdmission(owner: CacheAdmissionOwner) {
       }
       throwSqliteLifecycleErrors(errors, "Terminal shared-state failure cleanup failed");
     },
-    refresh(database: CachedOpenClawStateDatabase): boolean {
+    refresh<T>(
+      database: CachedOpenClawStateDatabase,
+      operation: () => T,
+    ): { value: T } | undefined {
+      let admitted = false;
       try {
-        runSqliteReadOperationSync(database.db, () => {
+        return runSqliteReadOperationSync(database.db, () => {
           const facts = getAdmittedSqliteSchemaFacts(database.db);
           if (!facts || facts !== database.schemaFacts) {
             assertSupportedStateSchemaVersion(database.db, database.path);
             database.schemaFacts = facts;
           }
+          admitted = true;
+          return { value: operation() };
         });
-        return true;
       } catch (error) {
+        // Only freshness failures belong to admission; the consuming owner handles its read.
+        if (admitted) {
+          throw error;
+        }
         const failure = error instanceof Error ? error : new Error(String(error));
         if (isSqliteCorruptionError(failure)) {
           owner.evict(database);
-          return false;
+          return undefined;
         }
         if (isSqliteSchemaVersionError(failure)) {
           owner.recordSchemaFailure(database.path, failure);
