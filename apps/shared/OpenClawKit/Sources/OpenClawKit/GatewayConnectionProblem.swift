@@ -442,6 +442,33 @@ extension GatewayConnectionProblemMapper {
 
     private static func map(_ tlsError: GatewayTLSValidationError) -> GatewayConnectionProblem {
         let failure = tlsError.failure
+        func problem(
+            kind: GatewayConnectionProblem.Kind,
+            owner: GatewayConnectionProblem.Owner = .network,
+            title: String,
+            message: String,
+            actionLabel: String,
+            messagePresentation: GatewayConnectionProblem.PresentationText? = nil,
+            retryable: Bool = false) -> GatewayConnectionProblem
+        {
+            let pinFailure = failure.kind == .pinMismatch ? failure : nil
+            return GatewayConnectionProblem(
+                kind: kind,
+                owner: owner,
+                title: title,
+                message: message,
+                actionLabel: actionLabel,
+                messagePresentation: messagePresentation,
+                docsURL: URL(string: "https://docs.openclaw.ai/gateway/troubleshooting"),
+                retryable: retryable,
+                pauseReconnect: !retryable,
+                technicalDetails: tlsError.localizedDescription,
+                tlsStoreKey: pinFailure?.storeKey,
+                tlsExpectedFingerprint: pinFailure?.expectedFingerprint,
+                tlsObservedFingerprint: pinFailure?.observedFingerprint,
+                tlsSystemTrustOk: pinFailure?.systemTrustOk ?? false)
+        }
+
         switch failure.kind {
         case .pinMismatch:
             let trustedSuffix = failure.systemTrustOk
@@ -459,85 +486,49 @@ extension GatewayConnectionProblemMapper {
                     "The saved TLS certificate pin for %@ no longer matches the gateway certificate. This device could not verify the new certificate.",
                     [failure.host])
             // swiftlint:enable line_length
-            return GatewayConnectionProblem(
+            return problem(
                 kind: .tlsPinMismatch,
                 owner: failure.systemTrustOk ? .network : .unknown,
                 title: "Gateway certificate changed",
                 message: message,
                 actionLabel: "Review certificate",
-                messagePresentation: messagePresentation,
-                actionCommand: nil,
-                docsURL: URL(string: "https://docs.openclaw.ai/gateway/troubleshooting"),
-                retryable: false,
-                pauseReconnect: true,
-                technicalDetails: tlsError.localizedDescription,
-                tlsStoreKey: failure.storeKey,
-                tlsExpectedFingerprint: failure.expectedFingerprint,
-                tlsObservedFingerprint: failure.observedFingerprint,
-                tlsSystemTrustOk: failure.systemTrustOk)
+                messagePresentation: messagePresentation)
         case .certificateUnavailable:
-            return GatewayConnectionProblem(
+            return problem(
                 kind: .tlsCertificateUnavailable,
-                owner: .network,
                 title: "Gateway certificate unavailable",
                 message: "OpenClaw could not read the gateway certificate for \(failure.host).",
                 actionLabel: "Retry",
                 messagePresentation: .localizedFormat(
                     "OpenClaw could not read the gateway certificate for %@.",
                     [failure.host]),
-                actionCommand: nil,
-                docsURL: URL(string: "https://docs.openclaw.ai/gateway/troubleshooting"),
-                retryable: true,
-                pauseReconnect: false,
-                technicalDetails: tlsError.localizedDescription)
+                retryable: true)
         case .untrustedCertificate:
-            return GatewayConnectionProblem(
+            return problem(
                 kind: .tlsCertificateUntrusted,
-                owner: .network,
                 title: "Gateway certificate is not trusted",
                 message: "This device does not trust the TLS certificate presented by \(failure.host).",
                 actionLabel: "Check certificate",
                 messagePresentation: .localizedFormat(
                     "This device does not trust the TLS certificate presented by %@.",
-                    [failure.host]),
-                actionCommand: nil,
-                docsURL: URL(string: "https://docs.openclaw.ai/gateway/troubleshooting"),
-                retryable: false,
-                pauseReconnect: true,
-                technicalDetails: tlsError.localizedDescription)
+                    [failure.host]))
         case .pinStorageUnavailable:
-            return GatewayConnectionProblem(
+            return problem(
                 kind: .tlsCertificateUnavailable,
                 owner: .unknown,
                 title: "Gateway certificate unavailable",
                 message: "OpenClaw could not securely save the TLS certificate pin for \(failure.host).",
                 actionLabel: "Retry",
-                titlePresentation: .localized("Gateway certificate unavailable"),
                 messagePresentation: .localizedFormat(
                     "OpenClaw could not securely save the TLS certificate pin for %@.",
                     [failure.host]),
-                actionLabelPresentation: .localized("Retry"),
-                actionCommand: nil,
-                docsURL: URL(string: "https://docs.openclaw.ai/gateway/troubleshooting"),
-                retryable: true,
-                pauseReconnect: false,
-                technicalDetails: tlsError.localizedDescription)
+                retryable: true)
         case .authorityMismatch:
-            return GatewayConnectionProblem(
+            return problem(
                 kind: .tlsCertificateUntrusted,
-                owner: .network,
                 title: "Gateway certificate is not trusted",
                 message: "The TLS challenge came from a different host or port than the requested Gateway.",
-                actionLabel: "Check certificate",
-                titlePresentation: .localized("Gateway certificate is not trusted"),
-                messagePresentation: .localized(
-                    "The TLS challenge came from a different host or port than the requested Gateway."),
-                actionLabelPresentation: .localized("Check certificate"),
-                actionCommand: nil,
-                docsURL: URL(string: "https://docs.openclaw.ai/gateway/troubleshooting"),
-                retryable: false,
-                pauseReconnect: true,
-                technicalDetails: tlsError.localizedDescription)
+                actionLabel: "Check certificate")
         }
     }
 
