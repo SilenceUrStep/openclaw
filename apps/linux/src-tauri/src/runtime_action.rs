@@ -489,17 +489,19 @@ fn perform(
     check_current(is_current)?;
     let result = install(cli, runtime, confirmed).and_then(|()| {
         let deadline = Instant::now() + health_timeout;
-        loop {
-            check_current(is_current)?;
-            let observed = capture(cli, true)?;
-            if observed.healthy_for(runtime) {
-                return Ok(());
-            }
-            if observed.paused() || Instant::now() >= deadline {
-                return Err("The Gateway did not become healthy on the bundled runtime.".into());
-            }
-            thread::sleep(Duration::from_secs(2));
-        }
+        wait_for_health(
+            runtime,
+            fresh && cfg!(windows),
+            is_current,
+            || capture(cli, true),
+            || {
+                if Instant::now() >= deadline {
+                    return Err("The Gateway did not become healthy on the bundled runtime.".into());
+                }
+                thread::sleep(Duration::from_secs(2));
+                Ok(())
+            },
+        )
     });
     result.map_err(|error| {
         let recovery = if fresh {
@@ -512,6 +514,27 @@ fn perform(
             confirmed.previous_runtime_command()
         )
     })
+}
+
+fn wait_for_health(
+    runtime: &BundledRuntime,
+    fresh_windows: bool,
+    is_current: &dyn Fn() -> bool,
+    mut observe: impl FnMut() -> Result<Observation, String>,
+    mut wait: impl FnMut() -> Result<(), String>,
+) -> Result<(), String> {
+    loop {
+        check_current(is_current)?;
+        let observed = observe()?;
+        if observed.healthy_for(runtime) {
+            return Ok(());
+        }
+        // A newly launched Startup-folder Gateway is reported stopped until its port binds.
+        if observed.paused() && !fresh_windows {
+            return Err("The Gateway did not become healthy on the bundled runtime.".into());
+        }
+        wait()?;
+    }
 }
 
 fn install(
@@ -780,6 +803,83 @@ fn check_current(is_current: &dyn Fn() -> bool) -> Result<(), String> {
 #[cfg(all(test, unix))]
 #[path = "runtime_action_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+
+    #[test]
+    fn fresh_windows_waits_through_startup_observations_without_reinstalling() {
+        let runtime = BundledRuntime {
+            bun: std::env::temp_dir().join("synthetic-bun.exe"),
+            sqlite: None,
+        };
+        let healthy = serde_json::json!({
+            "service": {
+                "loaded": true, "targetRole": "target",
+                "command": {"programArguments": [runtime.bun]},
+                "runtime": {"status": "running", "pid": 4100},
+                "runtimeIntent": {
+                    "status": "known", "revision": "pin", "definition": "definition",
+                    "pin": {"runtime": "bun", "path": runtime.bun}
+                }
+            },
+            "gateway": {"port": 18789},
+            "port": {"port": 18789, "status": "busy", "listeners": [{"pid": 4100}]},
+            "rpc": {"ok": true}
+        });
+        let mut starting = healthy.clone();
+        starting["service"]["runtime"] = serde_json::json!({"status": "stopped"});
+        starting["rpc"]["ok"] = false.into();
+        starting["port"]["listeners"] = serde_json::json!([]);
+        let mut observations = [starting, healthy].into_iter();
+        let mut waits = 0;
+        wait_for_health(
+            &runtime,
+            true,
+            &|| true,
+            || {
+                Ok(Observation(
+                    observations.next().expect("unexpected extra probe"),
+                ))
+            },
+            || {
+                waits += 1;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(waits, 1);
+        assert!(observations.next().is_none());
+    }
+
+    #[test]
+    fn fresh_windows_still_honors_the_health_budget_and_superseded_selection() {
+        let runtime = BundledRuntime {
+            bun: std::env::temp_dir().join("synthetic-bun.exe"),
+            sqlite: None,
+        };
+        let stopped = || {
+            Ok(Observation(serde_json::json!({"service": {
+                "loaded": true, "command": {"programArguments": [runtime.bun]},
+                "runtime": {"status": "stopped"}
+            }})))
+        };
+        assert_eq!(
+            wait_for_health(&runtime, true, &|| true, stopped, || Err("expired".into())),
+            Err("expired".into())
+        );
+        assert!(wait_for_health(
+            &runtime,
+            true,
+            &|| false,
+            || panic!("a superseded operation must not inspect or mutate the service"),
+            || panic!("a superseded operation must not wait"),
+        )
+        .unwrap_err()
+        .contains("superseded"));
+    }
+}
 
 #[cfg(all(test, windows))]
 mod windows_tests {
