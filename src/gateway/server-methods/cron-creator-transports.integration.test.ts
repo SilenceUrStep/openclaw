@@ -1,6 +1,11 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it, vi } from "vitest";
-import { createDeferred, withTestTimeout } from "../../../test/helpers/promise.js";
+import {
+  awaitGateBeforeSettlement,
+  createDeferred,
+  withinTest,
+  withTestTimeout,
+} from "../../../test/helpers/promise.js";
 import {
   createOperationalRunInstanceRef,
   getAdmittedRunDelegatedAuthority,
@@ -66,7 +71,7 @@ vi.mock("../../agents/node-exec-availability.js", () => ({
 installRequesterCronAuthorityTestHooks();
 
 describe("original caller through Cron creator transports", () => {
-  it.each([
+  it.for([
     ["fresh operator", "none"],
     ["recovered operator", "none"],
     ["legacy System", "none"],
@@ -76,7 +81,7 @@ describe("original caller through Cron creator transports", () => {
     ["recovered operator", "claim retirement"],
   ] as const)(
     "retains the %s scope boundary through real automation creation (%s)",
-    async (source, revocation) => {
+    async ([source, revocation], { signal }) => {
       const config: OpenClawConfig = { ...cfg, tools: { allow: [AUTOMATIONS_TOOL_NAME] } };
       setRuntimeConfigSnapshot(config);
       const entered = createDeferred();
@@ -213,15 +218,13 @@ describe("original caller through Cron creator transports", () => {
                       const rejected = expect(pending).rejects.toThrow(/authority|claim retired/i);
                       void rejected.catch(() => undefined);
                       try {
-                        await withTestTimeout(
-                          Promise.race([
+                        await withinTest(
+                          awaitGateBeforeSettlement(
                             entered.promise,
-                            pending.then(() => {
-                              throw new Error("Mutation returned before Cron validation");
-                            }),
-                          ]),
-                          10_000,
-                          "Recovered mutation did not reach real Cron validation",
+                            pending,
+                            "Recovered mutation did not reach real Cron validation",
+                          ),
+                          signal,
                         );
                         expect(await fixture.read()).toEqual(before);
                         if (revocation === "device token rotation") {
