@@ -1,8 +1,6 @@
-import { isDeepStrictEqual } from "node:util";
 import { deferSqliteWorkerCommitReceipt } from "../../infra/sqlite-worker-operation-admission.js";
 import { createSqliteWorkerTransferOwner } from "../../infra/sqlite-worker-transfer.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db-contract.js";
-import { readOpenClawAgentDatabaseIdentity } from "../../state/openclaw-agent-db-identity.js";
 import type { AgentWorkerOperationContext } from "../../state/openclaw-agent-operation-context.js";
 import {
   applySessionEntryPatchInDatabase,
@@ -11,10 +9,8 @@ import {
 import {
   readLifecycleTargetSnapshot,
   readSessionEntrySelectionSnapshot,
-  readExactSessionEntryRowValidated,
 } from "./session-accessor.sqlite-entry-store.js";
 import { prepareSessionEntryReplacementPublication } from "./session-accessor.sqlite-replacement-state.js";
-import { readTranscriptContextVersionInTransaction } from "./session-accessor.sqlite-transcript-state.js";
 import { assertCanonicalSqliteSessionKeysCurrent } from "./session-canonical-key.js";
 import { sessionEntryPatchPredicateMatches } from "./session-entry-patch-guard.js";
 import {
@@ -28,7 +24,7 @@ import type {
   SessionEntryPatchReduction,
   SessionEntryPatchSelection,
 } from "./session-entry-patch.types.js";
-import { listSessionMembersInDatabase } from "./session-sharing-store.kernel.js";
+import { readRefusedSessionSource } from "./session-source-predicate.worker.js";
 
 export function readSessionEntryPatchSnapshot(
   database: OpenClawAgentDatabase,
@@ -113,38 +109,6 @@ export function commitSessionEntryPatch(
     }
     return transferSessionEntryWorkerCandidate(database, admit, result);
   });
-}
-
-export function readRefusedSessionSource(
-  database: OpenClawAgentDatabase,
-  sources: SessionEntryPatchCommit["sources"],
-  identity = readOpenClawAgentDatabaseIdentity(database).identity,
-): SessionEntryPatchCommitted["refusedSource"] {
-  for (const [index, source] of (sources ?? []).entries()) {
-    if (identity !== source.source.databaseIdentity) {
-      return { index, facts: { entry: undefined } };
-    }
-    const entry = readExactSessionEntryRowValidated(database, source.sessionKey)?.entry;
-    const members =
-      source.members === undefined
-        ? undefined
-        : listSessionMembersInDatabase(database, source.sessionKey).map(
-            (member) => member.identityId,
-          );
-    if (
-      Boolean(entry) !== Boolean(source.expected) ||
-      source.fields.some((field) => !isDeepStrictEqual(entry?.[field], source.expected?.[field])) ||
-      (members !== undefined && !isDeepStrictEqual(members, source.members)) ||
-      (source.transcript &&
-        !isDeepStrictEqual(
-          { ...readTranscriptContextVersionInTransaction(database, source.transcript.sessionId) },
-          source.transcript.version,
-        ))
-    ) {
-      return { index, facts: { entry, members } };
-    }
-  }
-  return undefined;
 }
 
 export function transferSessionEntryWorkerCandidate(
